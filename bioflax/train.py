@@ -17,7 +17,7 @@ def train(args):
 
     best_test_loss = 100000000
     best_test_acc = -10000.0
-
+    #halloo
     batch_size = args.batch_size
     val_split = args.val_split
     epochs = args.epochs
