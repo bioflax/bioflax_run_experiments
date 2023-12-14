@@ -76,8 +76,10 @@ def create_mnist_dataset(seed, batch_size, val_split):
 
     train_loader, val_loader, test_loader = create_loaders(
         train_dataset, test_dataset, seed, val_split, batch_size)
+    
+    train_size = len(train_loader)
 
-    return train_loader, val_loader, test_loader, d_output, L, d_input,
+    return train_loader, val_loader, test_loader, d_output, L, d_input, train_size
 
 
 def create_random_dataset(seed, batch_size, val_split, input_dim, output_dim, L, train_set_size, test_set_size, dataset, teacher_act):
@@ -131,8 +133,10 @@ def create_random_dataset(seed, batch_size, val_split, input_dim, output_dim, L,
 
     train_loader, val_loader, test_loader = create_loaders(
         train_dataset, test_dataset, seed, val_split, batch_size)
+    
+    train_size = len(train_loader)
 
-    return train_loader, val_loader, test_loader, d_output, L, d_input,
+    return train_loader, val_loader, test_loader, d_output, L, d_input, train_size
 
 
 def create_loaders(train_dataset, test_dataset, seed, val_split, batch_size):
@@ -199,7 +203,7 @@ def generate_sample_set(model, params, data_rng, batch_size, d_input, L, size):
     size : int
         size of dataset in terms of batches
     """
-
+    
     for i in tqdm(range(size)):
         data_rng, key = jax.random.split(data_rng)
         if model == None:
@@ -207,8 +211,10 @@ def generate_sample_set(model, params, data_rng, batch_size, d_input, L, size):
                 scale=2 * jnp.pi)(key, shape=(batch_size, d_input, L)) - jnp.pi
             y = jnp.sin(x)
         else:
-            x = nn.initializers.uniform(scale=2)(
-                key, shape=(batch_size, d_input, L)) - 1.
+            initializer = jax.nn.initializers.normal(1.0)
+            x = initializer(key, shape=(batch_size, d_input, L))
+            #x = nn.initializers.uniform(scale=2)(
+            #    key, shape=(batch_size, d_input, L)) - 1.
             y = model.apply({'params': params}, x)
         if (i == 0):
             inputs = x
@@ -219,12 +225,19 @@ def generate_sample_set(model, params, data_rng, batch_size, d_input, L, size):
     inputs_py = np.array(inputs)
     outputs_py = np.array(outputs)
 
-    inputs_tensor = torch.from_numpy(inputs_py)
-    outputs_tensor = torch.from_numpy(outputs_py)
+    inputs_tensor = normalize_tensor(torch.from_numpy(inputs_py))
+    outputs_tensor = normalize_tensor(torch.from_numpy(outputs_py))
+
+    print(inputs_tensor.size())
 
     return torch.utils.data.TensorDataset(inputs_tensor, outputs_tensor)
 
+def normalize_tensor(tensor):
+    mean = tensor.mean()
+    std = tensor.std()
+    normalized_tensor = (tensor - mean) / std
 
+    return normalized_tensor
 def split_train_val(train_dataset, val_split, seed):
     """
     Randomly split self.dataset_train into a new (self.dataset_train, self.dataset_val) pair.

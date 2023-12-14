@@ -1,7 +1,9 @@
 import wandb
+import optax
 from jax import random
+from jax import config
 from typing import Any
-from .model import BatchBioNeuralNetwork
+from .model import BatchBioNeuralNetwork, BioNeuralNetwork
 from .train_helpers import create_train_state, train_epoch, validate, plot_sample, select_initializer
 from .dataloading import create_dataset
 
@@ -11,6 +13,7 @@ def train(args):
     Main function for training and eveluating a biomodel. Training and evaluation set up by
     arguments passed in args.
     """
+    config.update("jax_enable_x64", True)
 
     best_test_loss = 100000000
     best_test_acc = -10000.0
@@ -42,6 +45,9 @@ def train(args):
     initializer = args.initializer
     scale_w = args.scale_w
     scale_b = args.scale_b
+    lam = args.lam
+    architecture = args.architecture
+    tune_for_lr = args.tune_for_lr
 
     if dataset == "mnist":
         task = "classification"
@@ -54,6 +60,26 @@ def train(args):
     if dataset == "sinreg":
         output_features = 1
 
+    if architecture == 1:
+        hidden_layers = [1000]
+        args.hidden_layers = hidden_layers
+        activations = ['relu']
+        args.activations = activations
+    elif architecture == 2:
+        hidden_layers = [500, 500]
+        args.hidden_layers = hidden_layers
+        activations = ['relu', 'relu']
+        args.activations = activations
+    elif architecture == 3:
+        hidden_layers = [50, 50]
+        args.hidden_layers = hidden_layers
+        activations = ['identity', 'identity']
+        args.activations = activations
+    elif architecture == 4:
+        hidden_layers = [100, 100]
+        args.hidden_layers = hidden_layers
+        activations = ['identity', 'identity']
+        args.activations = activations
     if use_wandb:
         # Make wandb config dictionary
         wandb.init(
@@ -76,6 +102,7 @@ def train(args):
         output_features,
         seq_len,
         in_dim,
+        train_size
     ) = create_dataset(
         seed=key_data[0].item(),
         batch_size=batch_size,
@@ -90,40 +117,75 @@ def train(args):
     )
     print(f"[*] Starting training on '{dataset}'...")
 
-    # Model to run experiments with
+
+    # Learning rate scheduler
+    # print(total_steps)
+    # scheduler = optax.warmup_cosine_decay_schedule(init_value=lr, peak_value=5*lr, warmup_steps=0.1*total_steps, decay_steps=total_steps)
+
     model = BatchBioNeuralNetwork(
         hidden_layers=hidden_layers,
         activations=activations,
+        interpolation_factor=lam,
         features=output_features,
         mode=mode,
         initializer_kernel=select_initializer(initializer, scale_w),
         initializer_B=select_initializer(initializer, scale_b),
     )
-    state = create_train_state(
-        model=model,
-        rng=key_model,
-        lr=lr,
-        momentum=momentum,
-        weight_decay=weight_decay,
-        in_dim=in_dim,
-        batch_size=batch_size,
-        seq_len=seq_len,
-        optimizer=optimizer
-    )
+
 
     # Backpropagation model to compute alignments
     bp_model = BatchBioNeuralNetwork(
         hidden_layers=hidden_layers,
         activations=activations,
+        interpolation_factor=lam,
         features=output_features,
         mode="bp",
         initializer_kernel=select_initializer(initializer, scale_w),
         initializer_B=select_initializer(initializer, scale_b),
     )
-    _ = create_train_state(
-        model=bp_model,
-        rng=key_model_bp,
-        lr=lr,
+
+    key, key_model = random.split(key, num=2)
+    if tune_for_lr:
+        best_loss_rate = 10000.
+        for rate in [0.01, 0.0316, 0.07, 0.1, 0.15, 0.2, 0.25, 0.316, 0.4, 0.5, 0.6, 0.7, 0.8]:
+            iter_state = create_train_state(
+                model=model,
+                rng=key_model,
+                lr=rate, #scheduler, #relevant change at the moment
+                momentum=momentum,
+                weight_decay=weight_decay,
+                in_dim=in_dim,
+                batch_size=batch_size,
+                seq_len=seq_len,
+                optimizer=optimizer
+            )
+            for epoch in range(300):
+                (
+                    iter_state,
+                    train_loss_,
+                    avg_bias_al_per_layer,
+                    avg_wandb_grad_al_per_layer,
+                    avg_wandb_grad_al_total,
+                    avg_weight_al_per_layer,
+                    avg_rel_norm_grads,
+                    avg_conv_rate,
+                    avg_norm_,
+                    avg_norm
+                ) = train_epoch(iter_state, bp_model, trainloader, loss_fn, n, mode, False, lam)
+            print(train_loss_)
+            if train_loss_ < best_loss_rate:
+                best_loss_rate = train_loss_
+                lr = rate
+                #print(rate)
+
+        args.lr = lr
+        print(lr)
+
+    # Model to run experiments with
+    state = create_train_state(
+        model=model,
+        rng=key_model,
+        lr=lr, #scheduler, #relevant change at the moment
         momentum=momentum,
         weight_decay=weight_decay,
         in_dim=in_dim,
@@ -132,11 +194,29 @@ def train(args):
         optimizer=optimizer
     )
 
+    _ = create_train_state(
+        model=bp_model,
+        rng=key_model_bp,
+        lr=lr, #scheduler, relevant change at the moment
+        momentum=momentum,
+        weight_decay=weight_decay,
+        in_dim=in_dim,
+        batch_size=batch_size,
+        seq_len=seq_len,
+        optimizer=optimizer
+    )
+
+    
+
+
     # Training loop over epochs
     best_loss, best_acc, best_epoch = 100000000, - \
         100000000.0, 0  # This best loss is val_loss
-    for epoch in range(epochs):  # (args.epochs):
+    for i, epoch in enumerate(range(epochs)):  # (args.epochs):
         print(f"[*] Starting training epoch {epoch + 1}...")
+
+        #print(state.step)
+        #lr_ = scheduler(state.step)
         (
             state,
             train_loss,
@@ -145,7 +225,15 @@ def train(args):
             avg_wandb_grad_al_total,
             avg_weight_al_per_layer,
             avg_rel_norm_grads,
-        ) = train_epoch(state, bp_model, trainloader, loss_fn, n, mode, compute_alignments)
+            avg_conv_rate,
+            avg_norm_,
+            avg_norm
+        ) = train_epoch(state, bp_model, trainloader, loss_fn, n, mode, compute_alignments, lam)
+        if(i>0):
+            avg_conv_rate = train_loss/prev_loss
+        prev_loss = train_loss
+        convergence_metric = avg_wandb_grad_al_total * avg_rel_norm_grads
+        cos_squared = avg_wandb_grad_al_total*avg_wandb_grad_al_total
 
         if valloader is not None:
             print(f"[*] Running Epoch {epoch + 1} Validation...")
@@ -160,6 +248,7 @@ def train(args):
             print(
                 f"\tTrain Loss: {train_loss:.5f} "
                 f"-- Val Loss: {val_loss:.5f} "
+                f"-- avg_conv_rate: {avg_conv_rate:.5f} "
                 f"-- Test Loss: {test_loss:.5f}"
             )
             if task == "classification":
@@ -208,6 +297,7 @@ def train(args):
         metrics = {
             "Training loss": train_loss,
             "Val loss": val_loss,
+            #"lr" : lr_
         }
 
         if task == "classification":
@@ -218,13 +308,22 @@ def train(args):
                 metrics["Test accuracy"] = test_acc
 
         if compute_alignments:
+            metrics["lambda"] = lam
             metrics["Relative norms gradients"] = avg_rel_norm_grads
             metrics["Gradient alignment"] = avg_wandb_grad_al_total
+            metrics["Convergence metric"] = convergence_metric
+            metrics["Cos_Squared"] = cos_squared
+            metrics["Conv_Rate"] = avg_conv_rate
+            metrics["1-Conv_Rate"] = 1. - avg_conv_rate
+            metrics["Norm true gradient"] = avg_norm
+            metrics["Norm of est. gradient"] = avg_norm_
+            metrics["Approx const. mu/l"] = (1.-avg_conv_rate)/cos_squared
+            metrics["lr_final"] = lr
             for i, al in enumerate(avg_bias_al_per_layer):
                 metrics[f"Alignment bias gradient layer {i}"] = al
             for i, al in enumerate(avg_wandb_grad_al_per_layer):
                 metrics[f"Alignment gradient layer {i}"] = al
-            if mode == "fa" or mode == "kp":
+            if mode == "fa" or mode == "kp" or mode == "interpolate_fa_bp":
                 for i, al in enumerate(avg_weight_al_per_layer):
                     metrics[f"Alignment layer {i}"] = al
 
@@ -237,5 +336,7 @@ def train(args):
                 wandb.run.summary["Best test accuracy"] = best_test_acc
                 wandb.run.summary["Best val accuracy"] = best_acc
 
+
+    #print(lr)
     if plot:
         plot_sample(testloader, state, seq_len, in_dim, task, output_features)

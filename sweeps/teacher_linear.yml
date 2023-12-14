@@ -1,0 +1,47 @@
+method: grid
+program: run_train.py
+parameters:
+  dataset: 
+    value: "teacher"
+  batch_size:
+    value: 1024
+  train_set_size:
+    value: 100
+  test_set_size:
+    value: 10
+  seq_len:
+    value: 78
+  output_features: 
+    value: 1
+  teacher_act:
+    value: identity
+  mode:
+    value: 'interpolate_fa_bp'
+  architecture:
+    value: 3
+  epochs:
+    value: 300
+  lr:
+    values:
+      - 1
+  optimizer:
+    value: 'sgd'
+  tune_for_lr:
+    value: True
+  wandb_project:
+    value: 'weight_init'
+  compute_alignments: 
+    value : True
+  lam:
+    values :
+        - 0.0
+        - 0.1
+        - 0.2
+        - 0.3
+        - 0.4
+        - 0.5
+        - 0.6
+        - 0.7
+        - 0.8
+        - 0.9
+        - 1.0

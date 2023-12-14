@@ -4,7 +4,7 @@ import numpy as np
 import jax.tree_util as jax_tree
 
 
-def compute_metrics(state, grads_,  grads, mode):
+def compute_metrics(state, grads_,  grads, mode, lam):
     """
     Compute alignment metrics of current epoch for given state of the model and current gradients. Metrics computed are:
     - alignment of forward anf feedback weights per layer (only for fa and kp mode)
@@ -28,11 +28,13 @@ def compute_metrics(state, grads_,  grads, mode):
 
     if mode == 'fa' or mode == 'kp':
         weight_al_per_layer = compute_weight_alignment(state.params)
+    elif mode == 'interpolate_fa_bp':
+        weight_al_per_layer = compute_interpolate_weight_alignment(state.params, lam)
     else:
         weight_al_per_layer = 0
 
     bias_, _ = jax_tree.tree_flatten(
-        flatten_matrices_in_tree(remove_keys(grads_, ['kernel', 'B'])))
+        flatten_matrices_in_tree(remove_keys(grads_, ['kernel', 'B' ])))
     bias, _ = jax_tree.tree_flatten(
         flatten_matrices_in_tree(remove_keys(grads, ['kernel', 'B'])))
     kernel_, _ = jax_tree.tree_flatten(
@@ -43,12 +45,12 @@ def compute_metrics(state, grads_,  grads, mode):
     bias_al_per_layer = compute_bias_grad_al_layerwise(bias_, bias)
     wandb_grad_al_per_layer = compute_wandb_grad_al_layerwise(
         bias_, bias, kernel_, kernel)
-    wandb_grad_al_total = compute_wandb_al_total(bias_, bias, kernel_, kernel)
+    wandb_grad_al_total, norm_, norm  = compute_wandb_al_total(bias_, bias, kernel_, kernel)
     rel_norm_grads = compute_rel_norm(bias_, bias, kernel_, kernel)
-    return bias_al_per_layer, wandb_grad_al_per_layer, wandb_grad_al_total, weight_al_per_layer, rel_norm_grads
+    return bias_al_per_layer, wandb_grad_al_per_layer, wandb_grad_al_total, weight_al_per_layer, rel_norm_grads, norm_, norm
 
 
-def summarize_metrics_epoch(bias_als_per_layer, wandb_grad_als_per_layer, wandb_grad_als_total, weight_als_per_layer, rel_norms_grads, mode):
+def summarize_metrics_epoch(bias_als_per_layer, wandb_grad_als_per_layer, wandb_grad_als_total, weight_als_per_layer, rel_norms_grads, norms_, norms, mode):
     """
     Summarizes all metrics for an epoch - averaging over collected entries.
     ...
@@ -67,7 +69,7 @@ def summarize_metrics_epoch(bias_als_per_layer, wandb_grad_als_per_layer, wandb_
     mode : str
         mode of current model
     """
-    if mode == 'fa' or mode == 'kp':
+    if mode == 'fa' or mode == 'kp' or mode == 'interpolate_fa_bp':
         avg_weight_al_per_layer = entrywise_average(weight_als_per_layer)
     else:
         avg_weight_al_per_layer = 0
@@ -76,8 +78,32 @@ def summarize_metrics_epoch(bias_als_per_layer, wandb_grad_als_per_layer, wandb_
     avg_wandb_grad_al_total = jnp.mean(jnp.array(wandb_grad_als_total))
     avg_weight_al_per_layer = entrywise_average(weight_als_per_layer)
     avg_rel_norm_grads = jnp.mean(jnp.array(rel_norms_grads))
-    return avg_bias_al_per_layer, avg_wandb_grad_al_per_layer, avg_wandb_grad_al_total, avg_weight_al_per_layer, avg_rel_norm_grads
+    avg_norm_ = jnp.mean(jnp.array(norms_))
+    avg_norm = jnp.mean(jnp.array(norms))
+    return avg_bias_al_per_layer, avg_wandb_grad_al_per_layer, avg_wandb_grad_al_total, avg_weight_al_per_layer, avg_rel_norm_grads, avg_norm_, avg_norm
 
+
+@jax.jit
+def compute_interpolate_weight_alignment(params, lam):
+    """
+    Computes the alignment of feedforward and feedback matrices per layer.
+    ...
+    Parameters
+    ----------
+    params : dict
+        dictionary of model parameters
+    """
+    kernels, _ = jax_tree.tree_flatten(
+        flatten_matrices_in_tree(remove_keys(params, ['bias', 'B'])))
+    Bs, _ = jax_tree.tree_flatten(flatten_matrices_in_tree(
+        remove_keys(params, ['bias', 'kernel'])))
+    Bs = jax.tree_map((lambda a, b : lam * a + (1-lam)*b), Bs, kernels)
+    dot_prods = jax_tree.tree_map(jnp.dot, kernels, Bs)
+    norm_kern = jax_tree.tree_map(jnp.linalg.norm, kernels)
+    norm_B = jax_tree.tree_map(jnp.linalg.norm, Bs)
+    layerwise_alignments = jax.tree_map(
+        (lambda x, y, z: x/(y*z)), dot_prods, norm_kern, norm_B)
+    return layerwise_alignments
 
 @jax.jit
 def compute_weight_alignment(params):
@@ -164,7 +190,10 @@ def compute_wandb_al_total(bias_, bias, kernel_, kernel):
         jnp.dot(a, b) + jnp.dot(c, d))), bias_, bias, kernel_, kernel)
     squared_norms_ = squared_norm(bias_, kernel_)
     squared_norms = squared_norm(bias, kernel)
-    return jnp.sum(jnp.array(layerwise_alignments))/(jnp.sqrt(jnp.sum(jnp.array(squared_norms_))) * jnp.sqrt(jnp.sum(jnp.array(squared_norms))))
+    norm_ = jnp.sqrt(jnp.sum(jnp.array(squared_norms_)))
+    norm = jnp.sqrt(jnp.sum(jnp.array(squared_norms)))
+    res = jnp.sum(jnp.array(layerwise_alignments))/(norm_ * norm)
+    return res, norm_, norm
 
 
 @jax.jit

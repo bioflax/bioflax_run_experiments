@@ -39,13 +39,12 @@ def create_train_state(model, rng, lr, momentum, weight_decay, in_dim, batch_siz
     dummy_input = jnp.ones((batch_size, in_dim, seq_len))
     params = model.init(rng, dummy_input)["params"]
     sgd_optimizer = optax.sgd(learning_rate=lr, momentum=momentum)
-    sgd_optimizer = optax.sgd(learning_rate=lr, momentum=momentum)
     adam = optax.adam(learning_rate=lr)
     if (optimizer == 'sgd'):
-        tx = optax.chain(
-            sgd_optimizer,
-            optax.add_decayed_weights(weight_decay)
-        )
+        tx = sgd_optimizer #optax.chain(
+            #sgd_optimizer, 
+            #optax.add_decayed_weights(weight_decay)
+        #)
     elif (optimizer == 'adam'):
         tx = optax.chain(
             adam,
@@ -60,7 +59,7 @@ def create_train_state(model, rng, lr, momentum, weight_decay, in_dim, batch_siz
     return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
 
-def train_epoch(state, model, trainloader, loss_function, n, mode, compute_alignments):
+def train_epoch(state, model, trainloader, loss_function, n, mode, compute_alignments, lam):
     """
     Training function for an epoch that loops over batches.
     ...
@@ -90,6 +89,9 @@ def train_epoch(state, model, trainloader, loss_function, n, mode, compute_align
     wandb_grad_als_total = []
     rel_norms_grads = []
     weight_als_per_layer = []
+    conv_rates = []
+    norms_ = []
+    norms = []
 
     for i, batch in enumerate(tqdm(trainloader)):
         inputs, labels = prep_batch(batch)
@@ -107,7 +109,8 @@ def train_epoch(state, model, trainloader, loss_function, n, mode, compute_align
                 )
             else:
                 _, grads_ = jax.value_and_grad(loss_comp)(state.params)
-
+        #parallel_train_step = jax.vmap(train_step, in_axes=(None,0,0, None))
+        #state, loss, grads = parallel_train_step(state, inputs, labels, loss_function)
         state, loss, grads = train_step(state, inputs, labels, loss_function)
         batch_losses.append(loss)
 
@@ -118,13 +121,21 @@ def train_epoch(state, model, trainloader, loss_function, n, mode, compute_align
                 wandb_grad_al_total,
                 weight_al_per_layer,
                 rel_norm_grads,
-            ) = compute_metrics(state, grads_, grads, mode)
+                norm_, 
+                norm
+            ) = compute_metrics(state, grads_, grads, mode, lam)
 
             bias_als_per_layer.append(bias_al_per_layer)
             wandb_grad_als_per_layer.append(wandb_grad_al_per_layer)
             wandb_grad_als_total.append(wandb_grad_al_total)
             weight_als_per_layer.append(weight_al_per_layer)
             rel_norms_grads.append(rel_norm_grads)
+            norms_.append(norm_)
+            norms.append(norm)
+
+        if i > 0 : 
+            curr_rate = batch_losses[-1]/batch_losses[-2]
+            conv_rates.append(curr_rate)
 
     if compute_alignments:
         (
@@ -133,12 +144,16 @@ def train_epoch(state, model, trainloader, loss_function, n, mode, compute_align
             avg_wandb_grad_al_total,
             avg_weight_al_per_layer,
             avg_rel_norm_grads,
+            avg_norm_,
+            avg_norm
         ) = summarize_metrics_epoch(
             bias_als_per_layer,
             wandb_grad_als_per_layer,
             wandb_grad_als_total,
             weight_als_per_layer,
             rel_norms_grads,
+            norms_,
+            norms,
             mode,
         )
         return (
@@ -149,9 +164,12 @@ def train_epoch(state, model, trainloader, loss_function, n, mode, compute_align
             avg_wandb_grad_al_total,
             avg_weight_al_per_layer,
             avg_rel_norm_grads,
+            jnp.mean(jnp.array(conv_rates)),
+            avg_norm_,
+            avg_norm
         )
     else:
-        return state, jnp.mean(jnp.array(batch_losses)), 0, 0, 0, 0, 0
+        return state, jnp.mean(jnp.array(batch_losses)), 0, 0, 0, 0, 0, 0, 0, 0
 
 
 @partial(jax.jit, static_argnums=(3))

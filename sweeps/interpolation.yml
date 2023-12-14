@@ -1,0 +1,41 @@
+method: grid
+program: run_train.py
+parameters:
+  lr:
+    values:
+      - 0.316
+  optimizer:
+    value: 'sgd'
+  tune_for_lr:
+    value: True
+  mode:
+    value: 'interpolate_fa_bp'
+  architecture:
+    values:
+      - 1
+      - 2
+  epochs:
+    value: 100
+  wandb_project:
+    value: 'weight_init'
+  initializer:
+    value: 'variance_scaling'
+  scale_w:
+    value : 1
+  scale_b:
+    value : 1
+  compute_alignments: 
+    value : True
+  lam:
+    values :
+        - 0.0
+        - 0.1
+        - 0.2
+        - 0.3
+        - 0.4
+        - 0.5
+        - 0.6
+        - 0.7
+        - 0.8
+        - 0.9
+        - 1.0

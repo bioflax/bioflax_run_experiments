@@ -77,8 +77,8 @@ if __name__ == "__main__":
         "--mode",
         type=str,
         default="fa",
-        choices=["bp", "fa", "kp", "dfa"],
-        help="Training mode. Choices: ['bp', 'fa', 'kp', 'dfa']. Type: str, Default: 'fa'",
+        choices=["bp", "fa", "kp", "dfa", "interpolate_fa_bp"],
+        help="Training mode. Choices: ['bp', 'fa', 'kp', 'dfa', 'interpolate_fa_bp]. Type: str, Default: 'fa'",
     )
     parser.add_argument(
         "--activations",
@@ -167,6 +167,19 @@ if __name__ == "__main__":
     parser.add_argument(
         "--n", type=int, default=5, help="Batches for alignment averaging. Type: int, Default: 5"
     )
+
+    parser.add_argument(
+        "--lam", type=float, default=0, help="Interpolation factor between feeback and forward weights. lam=1 corresponds to fa and lam=0 corresponds to bp (when running in mode fa)"
+    )
+
+    parser.add_argument(
+        "--architecture", type=int, default = 2, choices=[1,2,3], help="new way to select architecture. 1 -> one hidden layer of dim 1000 and relu, 2 -> two hidden layers of dim 500 and 500 and relu"
+    )
+
+    parser.add_argument(
+        "--tune_for_lr", type=bool, default=False, help="should lr be tuned for setting"
+    )
+
 
     args = parser.parse_args()
 
