@@ -94,7 +94,7 @@ def train(args):
         activations = ['identity']
         args.activations = activations
     elif architecture == 6:
-        hidden_layers = [10, 10]
+        hidden_layers = [50, 50]
         args.hidden_layers = hidden_layers
         activations = ['sigmoid', 'sigmoid']
         args.activations = activations
