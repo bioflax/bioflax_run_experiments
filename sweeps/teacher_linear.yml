@@ -4,7 +4,7 @@ parameters:
   dataset: 
     value: "teacher"
   batch_size:
-    value: 1024
+    value: 8192
   train_set_size:
     value: 100
   test_set_size:
@@ -18,16 +18,23 @@ parameters:
   mode:
     value: 'interpolate_fa_bp'
   architecture:
-    value: 3
+    values: 
+      - 3
+      - 4
+      - 5
   epochs:
-    value: 300
+    value: 1
+  samples:
+    value: 120
   lr:
     values:
-      - 1
+      - 0.01
+      - 0.0316
+      - 0.1
   optimizer:
     value: 'sgd'
   tune_for_lr:
-    value: True
+    value: False
   wandb_project:
     value: 'weight_init'
   compute_alignments: 
@@ -35,7 +42,9 @@ parameters:
   lam:
     values :
         - 0.0
+        - 0.05
         - 0.1
+        - 0.15
         - 0.2
         - 0.3
         - 0.4

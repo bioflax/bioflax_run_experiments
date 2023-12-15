@@ -1,10 +1,14 @@
 import wandb
 import optax
+import jax
+import jax.numpy as jnp
 from jax import random
 from jax import config
+from tqdm import tqdm
 from typing import Any
-from .model import BatchBioNeuralNetwork, BioNeuralNetwork
-from .train_helpers import create_train_state, train_epoch, validate, plot_sample, select_initializer
+from .metric_computation import compute_metrics
+from .model import BatchBioNeuralNetwork, BatchTeacher, BioNeuralNetwork
+from .train_helpers import get_loss, reorganize_dict, prep_batch, create_train_state, train_epoch, train_step, validate, plot_sample, select_initializer
 from .dataloading import create_dataset
 
 
@@ -48,6 +52,9 @@ def train(args):
     lam = args.lam
     architecture = args.architecture
     tune_for_lr = args.tune_for_lr
+    samples = args.samples
+
+    print(tune_for_lr)
 
     if dataset == "mnist":
         task = "classification"
@@ -80,6 +87,11 @@ def train(args):
         args.hidden_layers = hidden_layers
         activations = ['identity', 'identity']
         args.activations = activations
+    elif architecture == 5:
+        hidden_layers = [500]
+        args.hidden_layers = hidden_layers
+        activations = ['identity']
+        args.activations = activations
     if use_wandb:
         # Make wandb config dictionary
         wandb.init(
@@ -92,7 +104,8 @@ def train(args):
     # Set seed for randomness
     print("[*] Setting Randomness...")
     key = random.PRNGKey(seed)
-    key_data, key_model, key_model_bp = random.split(key, num=3)
+    #das war evtl davor ganz falsch
+    key, key_data, key_model, key_model_lr, key_model_bp, key_model_teacher, key_dataset = random.split(key, num=7)
 
     # Create dataset
     (
@@ -104,7 +117,7 @@ def train(args):
         in_dim,
         train_size
     ) = create_dataset(
-        seed=key_data[0].item(),
+        seed=key_dataset[0].item(),
         batch_size=batch_size,
         dataset=dataset,
         val_split=val_split,
@@ -144,13 +157,15 @@ def train(args):
         initializer_B=select_initializer(initializer, scale_b),
     )
 
-    key, key_model = random.split(key, num=2)
-    if tune_for_lr:
+    if use_wandb and tune_for_lr:
+        print(tune_for_lr)
+        print(use_wandb)
+        print("Konsti liegt gewaltig falsch")
         best_loss_rate = 10000.
         for rate in [0.01, 0.0316, 0.07, 0.1, 0.15, 0.2, 0.25, 0.316, 0.4, 0.5, 0.6, 0.7, 0.8]:
             iter_state = create_train_state(
                 model=model,
-                rng=key_model,
+                rng=key_model_lr,
                 lr=rate, #scheduler, #relevant change at the moment
                 momentum=momentum,
                 weight_decay=weight_decay,
@@ -159,7 +174,7 @@ def train(args):
                 seq_len=seq_len,
                 optimizer=optimizer
             )
-            for epoch in range(300):
+            for epoch in range(5):
                 (
                     iter_state,
                     train_loss_,
@@ -206,10 +221,14 @@ def train(args):
         optimizer=optimizer
     )
 
+    jited_compute_metrics = jax.jit(compute_metrics,static_argnums=[3, 4])
     
-
+    teacher_model = BatchTeacher(features=output_features, activation=teacher_act)
+    teacher_params = teacher_model.init(key_model_teacher, jnp.ones(
+            (batch_size, in_dim, seq_len)))['params']
 
     # Training loop over epochs
+    conv_rate = 0
     best_loss, best_acc, best_epoch = 100000000, - \
         100000000.0, 0  # This best loss is val_loss
     for i, epoch in enumerate(range(epochs)):  # (args.epochs):
@@ -217,23 +236,74 @@ def train(args):
 
         #print(state.step)
         #lr_ = scheduler(state.step)
-        (
-            state,
-            train_loss,
-            avg_bias_al_per_layer,
-            avg_wandb_grad_al_per_layer,
-            avg_wandb_grad_al_total,
-            avg_weight_al_per_layer,
-            avg_rel_norm_grads,
-            avg_conv_rate,
-            avg_norm_,
-            avg_norm
-        ) = train_epoch(state, bp_model, trainloader, loss_fn, n, mode, compute_alignments, lam)
-        if(i>0):
-            avg_conv_rate = train_loss/prev_loss
-        prev_loss = train_loss
-        convergence_metric = avg_wandb_grad_al_total * avg_rel_norm_grads
-        cos_squared = avg_wandb_grad_al_total*avg_wandb_grad_al_total
+        
+        for i in tqdm(range(samples)):#, batch in enumerate(tqdm(trainloader)):
+            key, key_data = jax.random.split(key)
+            initializer = jax.nn.initializers.normal(1.0)
+            inputs = initializer(key_data, shape=(batch_size, in_dim, seq_len))
+            #x = nn.initializers.uniform(scale=2)(
+            #    key, shape=(batch_size, d_input, L)) - 1.
+            labels = teacher_model.apply({'params': teacher_params}, inputs)
+            #inputs, labels = prep_batch(batch)
+
+            if compute_alignments:
+
+                def loss_comp(params):
+                    logits = bp_model.apply({"params": params}, inputs)
+                    loss = get_loss(loss_fn, logits, labels)
+                    return loss
+
+                if mode != "bp":
+                    _, grads_ = jax.value_and_grad(loss_comp)(
+                        reorganize_dict({"params": state.params})["params"]
+                    )
+                else:
+                    _, grads_ = jax.value_and_grad(loss_comp)(state.params)
+
+            state, loss, grads = train_step(state, inputs, labels, loss_fn)
+            if compute_alignments:
+                (
+                    bias_al_per_layer,
+                    wandb_grad_al_per_layer,
+                    wandb_grad_al_total,
+                    weight_al_per_layer,
+                    rel_norm_grads,
+                    norm_, 
+                    norm
+                ) = jited_compute_metrics(state, grads_, grads, mode, lam)
+            
+            if(i>0):
+                conv_rate = loss/prev_loss
+            prev_loss = loss
+            convergence_metric = wandb_grad_al_total * rel_norm_grads
+            cos_squared = wandb_grad_al_total*wandb_grad_al_total
+
+            metrics = {
+            "Training loss epoch": loss,
+            
+            #"lr" : lr_
+            }
+
+            if compute_alignments:
+                metrics["lambda"] = lam
+                metrics["Relative norms gradients"] = rel_norm_grads
+                metrics["Gradient alignment"] = wandb_grad_al_total
+                metrics["Convergence metric"] = convergence_metric
+                metrics["Cos_Squared"] = cos_squared
+                metrics["Conv_Rate"] = conv_rate
+                metrics["1-Conv_Rate"] = 1. - conv_rate
+                metrics["Norm true gradient"] = norm
+                metrics["Norm of est. gradient"] = norm_
+                metrics["Approx const. mu/l"] = (1.-conv_rate)/cos_squared
+                metrics["lr_final"] = lr
+                for i, al in enumerate(bias_al_per_layer):
+                    metrics[f"Alignment bias gradient layer {i}"] = al
+                for i, al in enumerate(wandb_grad_al_per_layer):
+                    metrics[f"Alignment gradient layer {i}"] = al
+                if mode == "fa" or mode == "kp" or mode == "interpolate_fa_bp":
+                    for i, al in enumerate(weight_al_per_layer):
+                        metrics[f"Alignment layer {i}"] = al
+            wandb.log(metrics)
 
         if valloader is not None:
             print(f"[*] Running Epoch {epoch + 1} Validation...")
@@ -246,9 +316,9 @@ def train(args):
 
             print(f"\n=>> Epoch {epoch + 1} Metrics ===")
             print(
-                f"\tTrain Loss: {train_loss:.5f} "
+                f"\tTrain Loss: {loss:.5f} "
                 f"-- Val Loss: {val_loss:.5f} "
-                f"-- avg_conv_rate: {avg_conv_rate:.5f} "
+                f"-- conv_rate: {conv_rate:.5f} "
                 f"-- Test Loss: {test_loss:.5f}"
             )
             if task == "classification":
@@ -262,14 +332,14 @@ def train(args):
 
             print(f"\n=>> Epoch {epoch + 1} Metrics ===")
             print(
-                f"\tTrain loss: {train_loss:.5f}" f"-- Test loss: {val_loss:.5f}")
+                f"\tTrain loss: {loss:.5f}" f"-- Test loss: {val_loss:.5f}")
             if task == "classification":
                 print(f"-- Test accuracy: {val_acc:.4f}\n")
 
         if compute_alignments:
             print(
-                f"\tRelative norm gradients: {avg_rel_norm_grads:.4f} "
-                f"-- Gradient alignment: {avg_wandb_grad_al_total:.4f}"
+                f"\tRelative norm gradients: {rel_norm_grads:.4f} "
+                f"-- Gradient alignment: {wandb_grad_al_total:.4f}"
             )
 
         if val_acc > best_acc:
@@ -294,41 +364,21 @@ def train(args):
                 f" {best_test_acc:.4f} at epoch {best_epoch + 1}\n"
             )
 
-        metrics = {
-            "Training loss": train_loss,
-            "Val loss": val_loss,
-            #"lr" : lr_
+        
+        epoch_metrics = {
+            "Training loss epoch": loss,
+            "Val loss epoch": val_loss,
         }
-
+        
         if task == "classification":
-            metrics["Val accuracy"]: val_acc
+            epoch_metrics["Val accuracy"]: val_acc
         if valloader is not None:
-            metrics["Test loss"] = test_loss
+            epoch_metrics["Test loss"] = test_loss
             if task == "classification":
-                metrics["Test accuracy"] = test_acc
-
-        if compute_alignments:
-            metrics["lambda"] = lam
-            metrics["Relative norms gradients"] = avg_rel_norm_grads
-            metrics["Gradient alignment"] = avg_wandb_grad_al_total
-            metrics["Convergence metric"] = convergence_metric
-            metrics["Cos_Squared"] = cos_squared
-            metrics["Conv_Rate"] = avg_conv_rate
-            metrics["1-Conv_Rate"] = 1. - avg_conv_rate
-            metrics["Norm true gradient"] = avg_norm
-            metrics["Norm of est. gradient"] = avg_norm_
-            metrics["Approx const. mu/l"] = (1.-avg_conv_rate)/cos_squared
-            metrics["lr_final"] = lr
-            for i, al in enumerate(avg_bias_al_per_layer):
-                metrics[f"Alignment bias gradient layer {i}"] = al
-            for i, al in enumerate(avg_wandb_grad_al_per_layer):
-                metrics[f"Alignment gradient layer {i}"] = al
-            if mode == "fa" or mode == "kp" or mode == "interpolate_fa_bp":
-                for i, al in enumerate(avg_weight_al_per_layer):
-                    metrics[f"Alignment layer {i}"] = al
+                epoch_metrics["Test accuracy"] = test_acc
 
         if use_wandb:
-            wandb.log(metrics)
+            wandb.log(epoch_metrics)
             wandb.run.summary["Best val loss"] = best_loss
             wandb.run.summary["Best epoch"] = best_epoch
             wandb.run.summary["Best test loss"] = best_test_loss

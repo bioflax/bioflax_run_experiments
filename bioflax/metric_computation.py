@@ -4,6 +4,7 @@ import numpy as np
 import jax.tree_util as jax_tree
 
 
+
 def compute_metrics(state, grads_,  grads, mode, lam):
     """
     Compute alignment metrics of current epoch for given state of the model and current gradients. Metrics computed are:
@@ -50,6 +51,7 @@ def compute_metrics(state, grads_,  grads, mode, lam):
     return bias_al_per_layer, wandb_grad_al_per_layer, wandb_grad_al_total, weight_al_per_layer, rel_norm_grads, norm_, norm
 
 
+
 def summarize_metrics_epoch(bias_als_per_layer, wandb_grad_als_per_layer, wandb_grad_als_total, weight_als_per_layer, rel_norms_grads, norms_, norms, mode):
     """
     Summarizes all metrics for an epoch - averaging over collected entries.
@@ -83,7 +85,7 @@ def summarize_metrics_epoch(bias_als_per_layer, wandb_grad_als_per_layer, wandb_
     return avg_bias_al_per_layer, avg_wandb_grad_al_per_layer, avg_wandb_grad_al_total, avg_weight_al_per_layer, avg_rel_norm_grads, avg_norm_, avg_norm
 
 
-@jax.jit
+#@jax.jit
 def compute_interpolate_weight_alignment(params, lam):
     """
     Computes the alignment of feedforward and feedback matrices per layer.
@@ -105,7 +107,7 @@ def compute_interpolate_weight_alignment(params, lam):
         (lambda x, y, z: x/(y*z)), dot_prods, norm_kern, norm_B)
     return layerwise_alignments
 
-@jax.jit
+#@jax.jit
 def compute_weight_alignment(params):
     """
     Computes the alignment of feedforward and feedback matrices per layer.
@@ -127,7 +129,7 @@ def compute_weight_alignment(params):
     return layerwise_alignments
 
 
-@jax.jit
+#@jax.jit
 def compute_bias_grad_al_layerwise(bias_, bias):
     """
     Computes the alignment of bias gradients per layer: cos(theta) = (bias_.dot(bias))/(||bias_||*||bias||)
@@ -144,7 +146,7 @@ def compute_bias_grad_al_layerwise(bias_, bias):
     return layerwise_alignments
 
 
-@jax.jit
+#@jax.jit
 def compute_wandb_grad_al_layerwise(bias_, bias, kernel_, kernel):
     """
     Computes the alignment of weight & bias gradients per layer: 
@@ -168,7 +170,7 @@ def compute_wandb_grad_al_layerwise(bias_, bias, kernel_, kernel):
     return layerwise_alignments
 
 
-@jax.jit
+#@jax.jit
 def compute_wandb_al_total(bias_, bias, kernel_, kernel):
     """
     Computes the alignment of total gradients per layer:
@@ -196,7 +198,7 @@ def compute_wandb_al_total(bias_, bias, kernel_, kernel):
     return res, norm_, norm
 
 
-@jax.jit
+#@jax.jit
 def compute_rel_norm(bias_, bias, kernel_, kernel):
     """
     Computes the relative norm of gradient of current model compared to gradient of comparison model:
