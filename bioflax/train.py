@@ -1,6 +1,7 @@
 import wandb
 import optax
 import jax
+import flax.linen as nn
 import jax.numpy as jnp
 from jax import random
 from jax import config
@@ -92,6 +93,11 @@ def train(args):
         args.hidden_layers = hidden_layers
         activations = ['identity']
         args.activations = activations
+    elif architecture == 6:
+        hidden_layers = [10, 10]
+        args.hidden_layers = hidden_layers
+        activations = ['sigmoid', 'sigmoid']
+        args.activations = activations
     if use_wandb:
         # Make wandb config dictionary
         wandb.init(
@@ -160,7 +166,6 @@ def train(args):
     if use_wandb and tune_for_lr:
         print(tune_for_lr)
         print(use_wandb)
-        print("Konsti liegt gewaltig falsch")
         best_loss_rate = 10000.
         for rate in [0.01, 0.0316, 0.07, 0.1, 0.15, 0.2, 0.25, 0.316, 0.4, 0.5, 0.6, 0.7, 0.8]:
             iter_state = create_train_state(
@@ -239,11 +244,9 @@ def train(args):
         
         for i in tqdm(range(samples)):#, batch in enumerate(tqdm(trainloader)):
             key, key_data = jax.random.split(key)
-            initializer = jax.nn.initializers.normal(1.0)
-            inputs = initializer(key_data, shape=(batch_size, in_dim, seq_len))
-            #x = nn.initializers.uniform(scale=2)(
-            #    key, shape=(batch_size, d_input, L)) - 1.
-            labels = teacher_model.apply({'params': teacher_params}, inputs)
+            inputs = nn.initializers.uniform(
+                scale=2 * jnp.pi)(key, shape=(batch_size, in_dim, seq_len)) - jnp.pi
+            labels = jnp.sin(inputs)
             #inputs, labels = prep_batch(batch)
 
             if compute_alignments:
@@ -278,32 +281,33 @@ def train(args):
             convergence_metric = wandb_grad_al_total * rel_norm_grads
             cos_squared = wandb_grad_al_total*wandb_grad_al_total
 
-            metrics = {
-            "Training loss epoch": loss,
-            
-            #"lr" : lr_
-            }
+            if use_wandb:
+                metrics = {
+                "Training loss epoch": loss,
+                
+                #"lr" : lr_
+                }
 
-            if compute_alignments:
-                metrics["lambda"] = lam
-                metrics["Relative norms gradients"] = rel_norm_grads
-                metrics["Gradient alignment"] = wandb_grad_al_total
-                metrics["Convergence metric"] = convergence_metric
-                metrics["Cos_Squared"] = cos_squared
-                metrics["Conv_Rate"] = conv_rate
-                metrics["1-Conv_Rate"] = 1. - conv_rate
-                metrics["Norm true gradient"] = norm
-                metrics["Norm of est. gradient"] = norm_
-                metrics["Approx const. mu/l"] = (1.-conv_rate)/cos_squared
-                metrics["lr_final"] = lr
-                for i, al in enumerate(bias_al_per_layer):
-                    metrics[f"Alignment bias gradient layer {i}"] = al
-                for i, al in enumerate(wandb_grad_al_per_layer):
-                    metrics[f"Alignment gradient layer {i}"] = al
-                if mode == "fa" or mode == "kp" or mode == "interpolate_fa_bp":
-                    for i, al in enumerate(weight_al_per_layer):
-                        metrics[f"Alignment layer {i}"] = al
-            wandb.log(metrics)
+                if compute_alignments:
+                    metrics["lambda"] = lam
+                    metrics["Relative norms gradients"] = rel_norm_grads
+                    metrics["Gradient alignment"] = wandb_grad_al_total
+                    metrics["Convergence metric"] = convergence_metric
+                    metrics["Cos_Squared"] = cos_squared
+                    metrics["Conv_Rate"] = conv_rate
+                    metrics["1-Conv_Rate"] = 1. - conv_rate
+                    metrics["Norm true gradient"] = norm
+                    metrics["Norm of est. gradient"] = norm_
+                    metrics["Approx const. mu/l"] = (1.-conv_rate)/cos_squared
+                    metrics["lr_final"] = lr
+                    for i, al in enumerate(bias_al_per_layer):
+                        metrics[f"Alignment bias gradient layer {i}"] = al
+                    for i, al in enumerate(wandb_grad_al_per_layer):
+                        metrics[f"Alignment gradient layer {i}"] = al
+                    if mode == "fa" or mode == "kp" or mode == "interpolate_fa_bp":
+                        for i, al in enumerate(weight_al_per_layer):
+                            metrics[f"Alignment layer {i}"] = al
+                wandb.log(metrics)
 
         if valloader is not None:
             print(f"[*] Running Epoch {epoch + 1} Validation...")
