@@ -21,7 +21,7 @@ def train(args):
 
     best_test_loss = 100000000
     best_test_acc = -10000.0
-    #halloo
+    # halloo
     batch_size = args.batch_size
     val_split = args.val_split
     epochs = args.epochs
@@ -92,6 +92,11 @@ def train(args):
         args.hidden_layers = hidden_layers
         activations = ['identity']
         args.activations = activations
+    elif architecture == 6:
+        hidden_layers = [15, 15]
+        args.hidden_layers = hidden_layers
+        activations = ['identity', 'identity']
+        args.activations = activations
     if use_wandb:
         # Make wandb config dictionary
         wandb.init(
@@ -104,8 +109,9 @@ def train(args):
     # Set seed for randomness
     print("[*] Setting Randomness...")
     key = random.PRNGKey(seed)
-    #das war evtl davor ganz falsch
-    key, key_data, key_model, key_model_lr, key_model_bp, key_model_teacher, key_dataset = random.split(key, num=7)
+    # das war evtl davor ganz falsch
+    key, key_data, key_model, key_model_lr, key_model_bp, key_model_teacher, key_dataset = random.split(
+        key, num=7)
 
     # Create dataset
     (
@@ -130,7 +136,6 @@ def train(args):
     )
     print(f"[*] Starting training on '{dataset}'...")
 
-
     # Learning rate scheduler
     # print(total_steps)
     # scheduler = optax.warmup_cosine_decay_schedule(init_value=lr, peak_value=5*lr, warmup_steps=0.1*total_steps, decay_steps=total_steps)
@@ -145,7 +150,6 @@ def train(args):
         initializer_B=select_initializer(initializer, scale_b),
     )
 
-
     # Backpropagation model to compute alignments
     bp_model = BatchBioNeuralNetwork(
         hidden_layers=hidden_layers,
@@ -157,7 +161,7 @@ def train(args):
         initializer_B=select_initializer(initializer, scale_b),
     )
 
-    if use_wandb and tune_for_lr:
+    if tune_for_lr:
         print(tune_for_lr)
         print(use_wandb)
         print("Konsti liegt gewaltig falsch")
@@ -166,7 +170,7 @@ def train(args):
             iter_state = create_train_state(
                 model=model,
                 rng=key_model_lr,
-                lr=rate, #scheduler, #relevant change at the moment
+                lr=rate,  # scheduler, #relevant change at the moment
                 momentum=momentum,
                 weight_decay=weight_decay,
                 in_dim=in_dim,
@@ -191,7 +195,7 @@ def train(args):
             if train_loss_ < best_loss_rate:
                 best_loss_rate = train_loss_
                 lr = rate
-                #print(rate)
+                # print(rate)
 
         args.lr = lr
         print(lr)
@@ -200,7 +204,7 @@ def train(args):
     state = create_train_state(
         model=model,
         rng=key_model,
-        lr=lr, #scheduler, #relevant change at the moment
+        lr=lr,  # scheduler, #relevant change at the moment
         momentum=momentum,
         weight_decay=weight_decay,
         in_dim=in_dim,
@@ -212,7 +216,7 @@ def train(args):
     _ = create_train_state(
         model=bp_model,
         rng=key_model_bp,
-        lr=lr, #scheduler, relevant change at the moment
+        lr=lr,  # scheduler, relevant change at the moment
         momentum=momentum,
         weight_decay=weight_decay,
         in_dim=in_dim,
@@ -221,11 +225,12 @@ def train(args):
         optimizer=optimizer
     )
 
-    jited_compute_metrics = jax.jit(compute_metrics,static_argnums=[3, 4])
-    
-    teacher_model = BatchTeacher(features=output_features, activation=teacher_act)
+    jited_compute_metrics = jax.jit(compute_metrics, static_argnums=[3, 4])
+
+    teacher_model = BatchTeacher(
+        features=output_features, activation=teacher_act)
     teacher_params = teacher_model.init(key_model_teacher, jnp.ones(
-            (batch_size, in_dim, seq_len)))['params']
+        (batch_size, in_dim, seq_len)))['params']
 
     # Training loop over epochs
     conv_rate = 0
@@ -234,17 +239,19 @@ def train(args):
     for i, epoch in enumerate(range(epochs)):  # (args.epochs):
         print(f"[*] Starting training epoch {epoch + 1}...")
 
-        #print(state.step)
-        #lr_ = scheduler(state.step)
-        
-        for i in tqdm(range(samples)):#, batch in enumerate(tqdm(trainloader)):
+        # print(state.step)
+        # lr_ = scheduler(state.step)
+
+        # , batch in enumerate(tqdm(trainloader)):
+        for i in tqdm(range(samples)):
             key, key_data = jax.random.split(key)
             initializer = jax.nn.initializers.normal(1.0)
             inputs = initializer(key_data, shape=(batch_size, in_dim, seq_len))
-            #x = nn.initializers.uniform(scale=2)(
+            # x = nn.initializers.uniform(scale=2)(
             #    key, shape=(batch_size, d_input, L)) - 1.
             labels = teacher_model.apply({'params': teacher_params}, inputs)
-            #inputs, labels = prep_batch(batch)
+            labels -= jnp.mean(labels, axis=0)
+            # inputs, labels = prep_batch(batch)
 
             if compute_alignments:
 
@@ -268,20 +275,20 @@ def train(args):
                     wandb_grad_al_total,
                     weight_al_per_layer,
                     rel_norm_grads,
-                    norm_, 
+                    norm_,
                     norm
                 ) = jited_compute_metrics(state, grads_, grads, mode, lam)
-            
-            if(i>0):
-                conv_rate = loss/prev_loss
-            prev_loss = loss
-            convergence_metric = wandb_grad_al_total * rel_norm_grads
-            cos_squared = wandb_grad_al_total*wandb_grad_al_total
+
+                if (i > 0):
+                    conv_rate = loss/prev_loss
+                prev_loss = loss
+                convergence_metric = wandb_grad_al_total * rel_norm_grads
+                cos_squared = wandb_grad_al_total*wandb_grad_al_total
 
             metrics = {
-            "Training loss epoch": loss,
-            
-            #"lr" : lr_
+                "Training loss epoch": loss,
+
+                # "lr" : lr_
             }
 
             if compute_alignments:
@@ -303,7 +310,8 @@ def train(args):
                 if mode == "fa" or mode == "kp" or mode == "interpolate_fa_bp":
                     for i, al in enumerate(weight_al_per_layer):
                         metrics[f"Alignment layer {i}"] = al
-            wandb.log(metrics)
+            if use_wandb:
+                wandb.log(metrics)
 
         if valloader is not None:
             print(f"[*] Running Epoch {epoch + 1} Validation...")
@@ -364,12 +372,11 @@ def train(args):
                 f" {best_test_acc:.4f} at epoch {best_epoch + 1}\n"
             )
 
-        
         epoch_metrics = {
             "Training loss epoch": loss,
             "Val loss epoch": val_loss,
         }
-        
+
         if task == "classification":
             epoch_metrics["Val accuracy"]: val_acc
         if valloader is not None:
@@ -386,7 +393,6 @@ def train(args):
                 wandb.run.summary["Best test accuracy"] = best_test_acc
                 wandb.run.summary["Best val accuracy"] = best_acc
 
-
-    #print(lr)
+    # print(lr)
     if plot:
         plot_sample(testloader, state, seq_len, in_dim, task, output_features)

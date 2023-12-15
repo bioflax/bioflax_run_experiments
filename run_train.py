@@ -173,7 +173,7 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--architecture", type=int, default = 2, choices=[1,2,3,4,5], help="new way to select architecture. 1 -> one hidden layer of dim 1000 and relu, 2 -> two hidden layers of dim 500 and 500 and relu"
+        "--architecture", type=int, default=2, choices=[1, 2, 3, 4, 5, 6], help="new way to select architecture. 1 -> one hidden layer of dim 1000 and relu, 2 -> two hidden layers of dim 500 and 500 and relu"
     )
 
     parser.add_argument(
@@ -181,7 +181,7 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--samples", type=int, default = 500, help="number of samples for 1 epoch"
+        "--samples", type=int, default=500, help="number of samples for 1 epoch"
     )
     args = parser.parse_args()
 
