@@ -71,14 +71,14 @@ def train(args):
         activations = ['relu', 'relu']
         args.activations = activations
     elif architecture == 3:
-        hidden_layers = [50, 50]
+        hidden_layers = [10, 10]
         args.hidden_layers = hidden_layers
         activations = ['identity', 'identity']
         args.activations = activations
     elif architecture == 4:
-        hidden_layers = [100, 100]
+        hidden_layers = [2]
         args.hidden_layers = hidden_layers
-        activations = ['identity', 'identity']
+        activations = ['identity']
         args.activations = activations
     if use_wandb:
         # Make wandb config dictionary
@@ -117,7 +117,6 @@ def train(args):
     )
     print(f"[*] Starting training on '{dataset}'...")
 
-
     # Learning rate scheduler
     # print(total_steps)
     # scheduler = optax.warmup_cosine_decay_schedule(init_value=lr, peak_value=5*lr, warmup_steps=0.1*total_steps, decay_steps=total_steps)
@@ -131,7 +130,6 @@ def train(args):
         initializer_kernel=select_initializer(initializer, scale_w),
         initializer_B=select_initializer(initializer, scale_b),
     )
-
 
     # Backpropagation model to compute alignments
     bp_model = BatchBioNeuralNetwork(
@@ -151,7 +149,7 @@ def train(args):
             iter_state = create_train_state(
                 model=model,
                 rng=key_model,
-                lr=rate, #scheduler, #relevant change at the moment
+                lr=rate,  # scheduler, #relevant change at the moment
                 momentum=momentum,
                 weight_decay=weight_decay,
                 in_dim=in_dim,
@@ -176,7 +174,7 @@ def train(args):
             if train_loss_ < best_loss_rate:
                 best_loss_rate = train_loss_
                 lr = rate
-                #print(rate)
+                # print(rate)
 
         args.lr = lr
         print(lr)
@@ -185,7 +183,7 @@ def train(args):
     state = create_train_state(
         model=model,
         rng=key_model,
-        lr=lr, #scheduler, #relevant change at the moment
+        lr=lr,  # scheduler, #relevant change at the moment
         momentum=momentum,
         weight_decay=weight_decay,
         in_dim=in_dim,
@@ -197,7 +195,7 @@ def train(args):
     _ = create_train_state(
         model=bp_model,
         rng=key_model_bp,
-        lr=lr, #scheduler, relevant change at the moment
+        lr=lr,  # scheduler, relevant change at the moment
         momentum=momentum,
         weight_decay=weight_decay,
         in_dim=in_dim,
@@ -206,17 +204,14 @@ def train(args):
         optimizer=optimizer
     )
 
-    
-
-
     # Training loop over epochs
     best_loss, best_acc, best_epoch = 100000000, - \
         100000000.0, 0  # This best loss is val_loss
     for i, epoch in enumerate(range(epochs)):  # (args.epochs):
         print(f"[*] Starting training epoch {epoch + 1}...")
 
-        #print(state.step)
-        #lr_ = scheduler(state.step)
+        # print(state.step)
+        # lr_ = scheduler(state.step)
         (
             state,
             train_loss,
@@ -229,7 +224,7 @@ def train(args):
             avg_norm_,
             avg_norm
         ) = train_epoch(state, bp_model, trainloader, loss_fn, n, mode, compute_alignments, lam)
-        if(i>0):
+        if (i > 0):
             avg_conv_rate = train_loss/prev_loss
         prev_loss = train_loss
         convergence_metric = avg_wandb_grad_al_total * avg_rel_norm_grads
@@ -297,7 +292,7 @@ def train(args):
         metrics = {
             "Training loss": train_loss,
             "Val loss": val_loss,
-            #"lr" : lr_
+            # "lr" : lr_
         }
 
         if task == "classification":
@@ -336,7 +331,6 @@ def train(args):
                 wandb.run.summary["Best test accuracy"] = best_test_acc
                 wandb.run.summary["Best val accuracy"] = best_acc
 
-
-    #print(lr)
+    # print(lr)
     if plot:
         plot_sample(testloader, state, seq_len, in_dim, task, output_features)

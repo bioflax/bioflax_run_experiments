@@ -41,10 +41,10 @@ def create_train_state(model, rng, lr, momentum, weight_decay, in_dim, batch_siz
     sgd_optimizer = optax.sgd(learning_rate=lr, momentum=momentum)
     adam = optax.adam(learning_rate=lr)
     if (optimizer == 'sgd'):
-        tx = sgd_optimizer #optax.chain(
-            #sgd_optimizer, 
-            #optax.add_decayed_weights(weight_decay)
-        #)
+        tx = sgd_optimizer  # optax.chain(
+        # sgd_optimizer,
+        # optax.add_decayed_weights(weight_decay)
+        # )
     elif (optimizer == 'adam'):
         tx = optax.chain(
             adam,
@@ -109,8 +109,8 @@ def train_epoch(state, model, trainloader, loss_function, n, mode, compute_align
                 )
             else:
                 _, grads_ = jax.value_and_grad(loss_comp)(state.params)
-        #parallel_train_step = jax.vmap(train_step, in_axes=(None,0,0, None))
-        #state, loss, grads = parallel_train_step(state, inputs, labels, loss_function)
+        # parallel_train_step = jax.vmap(train_step, in_axes=(None,0,0, None))
+        # state, loss, grads = parallel_train_step(state, inputs, labels, loss_function)
         state, loss, grads = train_step(state, inputs, labels, loss_function)
         batch_losses.append(loss)
 
@@ -121,7 +121,7 @@ def train_epoch(state, model, trainloader, loss_function, n, mode, compute_align
                 wandb_grad_al_total,
                 weight_al_per_layer,
                 rel_norm_grads,
-                norm_, 
+                norm_,
                 norm
             ) = compute_metrics(state, grads_, grads, mode, lam)
 
@@ -133,7 +133,7 @@ def train_epoch(state, model, trainloader, loss_function, n, mode, compute_align
             norms_.append(norm_)
             norms.append(norm)
 
-        if i > 0 : 
+        if i > 0:
             curr_rate = batch_losses[-1]/batch_losses[-2]
             conv_rates.append(curr_rate)
 
@@ -414,7 +414,7 @@ def plot_regression_sample(testloader, state, seq_len, in_dim, task, output_feat
         test_batch = next(iter(testloader))
         pred = pred_step(state, test_batch, task)
         inputs, labels = test_batch
-        labels = labels
+        labels = labels + 1
         inputs_array = np.append(inputs_array, inputs)
         labels_array = np.append(labels_array, labels)
         pred_array = np.append(pred_array, pred)

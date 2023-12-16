@@ -193,7 +193,9 @@ class RandomDenseLinearInterpolateFABP(nn.Module):
 
         def fwd(module, x, B):
             primals_out, vjp_fun = nn.vjp(f, module, x, B)
-            inter = self.interpolation_factor * B + (1-self.interpolation_factor) * module.variables['params']['kernel']
+            inter = self.interpolation_factor * B + \
+                (1-self.interpolation_factor) * \
+                module.variables['params']['kernel']
             return primals_out, (vjp_fun, B, inter)
 
         def bwd(vjp_fn_B, delta):
@@ -206,6 +208,8 @@ class RandomDenseLinearInterpolateFABP(nn.Module):
             self.features, kernel_init=self.initializer_kernel)
         custom_f = nn.custom_vjp(fn=f, forward_fn=fwd, backward_fn=bwd)
         return custom_f(forward_module, x, B)
+
+
 """
 B = self.param("B", self.initializer_B,
                        (jnp.shape(x)[-1], self.features))
@@ -229,6 +233,8 @@ B = self.param("B", self.initializer_B,
         custom_f = nn.custom_vjp(fn=f, forward_fn=fwd, backward_fn=bwd)
         return custom_f(forward_module, x, B, inter)
 """
+
+
 class BioNeuralNetwork(nn.Module):
     """
     Creates a neural network with bio-inspired layers according to selected mode.
@@ -248,7 +254,7 @@ class BioNeuralNetwork(nn.Module):
 
     hidden_layers: [int]
     activations: [str]
-    interpolation_factor:float = 0
+    interpolation_factor: float = 0
     initializer_kernel: Any = nn.initializers.lecun_normal()
     initializer_B: Any = nn.initializers.lecun_normal()
     features: int = 4
@@ -265,17 +271,19 @@ class BioNeuralNetwork(nn.Module):
             elif self.mode == "fa":
                 x = RandomDenseLinearFA(
                     features, self.initializer_kernel, self.initializer_B)(x)
-                x = getattr(nn, activation)(x)
+                if activation != "identity":
+                    x = getattr(nn, activation)(x)
             elif self.mode == "dfa":
                 x = RandomDenseLinearDFAHidden(
                     features, self.features, self.initializer_kernel, self.initializer_B, getattr(nn, activation))(x)
             elif self.mode == "kp":
                 x = RandomDenseLinearKP(
                     features, self.initializer_kernel, self.initializer_B)(x)
-                x = getattr(nn, activation)(x)
+                if activation != "identity":
+                    x = getattr(nn, activation)(x)
             elif self.mode == "interpolate_fa_bp":
                 x = RandomDenseLinearInterpolateFABP(
-                        features, self.interpolation_factor, self.initializer_kernel, self.initializer_B)(x)
+                    features, self.interpolation_factor, self.initializer_kernel, self.initializer_B)(x)
                 if activation != "identity":
                     x = getattr(nn, activation)(x)
         if self.mode == "bp":
@@ -304,10 +312,10 @@ class TeacherNetwork(nn.Module):
 
     @nn.compact
     def __call__(self, x):
-        #x = nn.Dense(64)(x)
-        #if self.activation != "identity":
+        # x = nn.Dense(64)(x)
+        # if self.activation != "identity":
         #    x = getattr(nn, self.activation)(x)
-        x = nn.Dense(32)(x)
+        x = nn.Dense(2)(x)
         if self.activation != "identity":
             x = getattr(nn, self.activation)(x)
         x = nn.Dense(self.features)(x)
