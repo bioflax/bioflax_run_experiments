@@ -19,6 +19,7 @@ class RandomDenseLinearFA(nn.Module):
     features: int
     initializer_kernel: Any = nn.initializers.lecun_normal()
     initializer_B: Any = nn.initializers.lecun_normal()
+    use_bias: bool = False
 
     @nn.compact
     def __call__(self, x):
@@ -39,7 +40,7 @@ class RandomDenseLinearFA(nn.Module):
             return (delta_params, delta_x, jnp.zeros_like(B))
 
         forward_module = nn.Dense(
-            self.features, kernel_init=self.initializer_kernel)
+            self.features, kernel_init=self.initializer_kernel, use_bias=self.use_bias)
         custom_f = nn.custom_vjp(fn=f, forward_fn=fwd, backward_fn=bwd)
         return custom_f(forward_module, x, B)
 
@@ -61,6 +62,7 @@ class RandomDenseLinearKP(nn.Module):
     features: int
     initializer_kernel: Any = nn.initializers.lecun_normal()
     initializer_B: Any = nn.initializers.lecun_normal()
+    use_bias: bool = False
 
     @nn.compact
     def __call__(self, x):
@@ -81,7 +83,7 @@ class RandomDenseLinearKP(nn.Module):
             return (delta_params, delta_x, delta_params["params"]["kernel"])
 
         forward_module = nn.Dense(
-            self.features, kernel_init=self.initializer_kernel)
+            self.features, kernel_init=self.initializer_kernel, use_bias=self.use_bias)
         custom_f = nn.custom_vjp(fn=f, forward_fn=fwd, backward_fn=bwd)
         return custom_f(forward_module, x, B)
 
@@ -101,6 +103,7 @@ class RandomDenseLinearDFAOutput(nn.Module):
 
     features: int
     initializer_kernel: Any = nn.initializers.lecun_normal()
+    use_bias: bool = False
 
     @nn.compact
     def __call__(self, x):
@@ -116,7 +119,7 @@ class RandomDenseLinearDFAOutput(nn.Module):
             return (delta_params, delta)
 
         forward_module = nn.Dense(
-            self.features, kernel_init=self.initializer_kernel)
+            self.features, kernel_init=self.initializer_kernel, use_bias=self.use_bias)
         custom_f = nn.custom_vjp(fn=f, forward_fn=fwd, backward_fn=bwd)
         return custom_f(forward_module, x)
 
@@ -142,6 +145,7 @@ class RandomDenseLinearDFAHidden(nn.Module):
     initializer_kernel: Any = nn.initializers.lecun_normal()
     initializer_B: Any = nn.initializers.lecun_normal()
     activation: Any = nn.relu
+    use_bias: bool = False
 
     @nn.compact
     def __call__(self, x):
@@ -161,7 +165,7 @@ class RandomDenseLinearDFAHidden(nn.Module):
             return (delta_params, delta, jnp.zeros_like(B))
 
         forward_module = nn.Dense(
-            self.features, kernel_init=self.initializer_kernel)
+            self.features, kernel_init=self.initializer_kernel, use_bias=self.use_bias)
         custom_f = nn.custom_vjp(fn=f, forward_fn=fwd, backward_fn=bwd)
         return custom_f(forward_module, x, B)
 
@@ -182,6 +186,7 @@ class RandomDenseLinearInterpolateFABP(nn.Module):
     interpolation_factor: float
     initializer_kernel: Any = nn.initializers.lecun_normal()
     initializer_B: Any = nn.initializers.lecun_normal()
+    use_bias: bool = False
 
     @nn.compact
     def __call__(self, x):
@@ -206,7 +211,8 @@ class RandomDenseLinearInterpolateFABP(nn.Module):
 
         forward_module = nn.Dense(
             self.features, kernel_init=self.initializer_kernel)
-        custom_f = nn.custom_vjp(fn=f, forward_fn=fwd, backward_fn=bwd)
+        custom_f = nn.custom_vjp(fn=f, forward_fn=fwd,
+                                 backward_fn=bwd, use_bias=self.use_bias)
         return custom_f(forward_module, x, B)
 
 
@@ -259,45 +265,50 @@ class BioNeuralNetwork(nn.Module):
     initializer_B: Any = nn.initializers.lecun_normal()
     features: int = 4
     mode: str = "bp"
+    use_bias: bool = False
 
     @nn.jit
     @nn.compact
     def __call__(self, x):
         for features, activation in zip(self.hidden_layers, self.activations):
             if self.mode == "bp":
-                x = nn.Dense(features, kernel_init=self.initializer_kernel)(x)
+                x = nn.Dense(
+                    features, kernel_init=self.initializer_kernel, use_bias=self.use_bias)(x)
                 if activation != "identity":
                     x = getattr(nn, activation)(x)
             elif self.mode == "fa":
                 x = RandomDenseLinearFA(
-                    features, self.initializer_kernel, self.initializer_B)(x)
-                x = getattr(nn, activation)(x)
+                    features, self.initializer_kernel, self.initializer_B, use_bias=self.use_bias)(x)
+                if activation != "identity":
+                    x = getattr(nn, activation)(x)
             elif self.mode == "dfa":
                 x = RandomDenseLinearDFAHidden(
-                    features, self.features, self.initializer_kernel, self.initializer_B, getattr(nn, activation))(x)
+                    features, self.features, self.initializer_kernel, self.initializer_B, getattr(nn, activation), use_bias=self.use_bias)(x)
             elif self.mode == "kp":
                 x = RandomDenseLinearKP(
-                    features, self.initializer_kernel, self.initializer_B)(x)
-                x = getattr(nn, activation)(x)
+                    features, self.initializer_kernel, self.initializer_B, use_bias=self.use_bias)(x)
+                if activation != "identity":
+                    x = getattr(nn, activation)(x)
             elif self.mode == "interpolate_fa_bp":
                 x = RandomDenseLinearInterpolateFABP(
-                    features, self.interpolation_factor, self.initializer_kernel, self.initializer_B)(x)
+                    features, self.interpolation_factor, self.initializer_kernel, self.initializer_B, use_bias=self.use_bias)(x)
                 if activation != "identity":
                     x = getattr(nn, activation)(x)
         if self.mode == "bp":
-            x = nn.Dense(self.features, kernel_init=self.initializer_kernel)(x)
+            x = nn.Dense(
+                self.features, kernel_init=self.initializer_kernel, use_bias=self.use_bias)(x)
         elif self.mode == "fa":
             x = RandomDenseLinearFA(
-                self.features, self.initializer_kernel, self.initializer_B)(x)
+                self.features, self.initializer_kernel, self.initializer_B, use_bias=self.use_bias)(x)
         elif self.mode == "dfa":
             x = RandomDenseLinearDFAOutput(
                 self.features, self.initializer_kernel)(x)
         elif self.mode == "kp":
             x = RandomDenseLinearKP(
-                self.features, self.initializer_kernel, self.initializer_B)(x)
+                self.features, self.initializer_kernel, self.initializer_B, use_bias=self.use_bias)(x)
         elif self.mode == "interpolate_fa_bp":
             x = RandomDenseLinearInterpolateFABP(
-                self.features, self.interpolation_factor, self.initializer_kernel, self.initializer_B)(x)
+                self.features, self.interpolation_factor, self.initializer_kernel, self.initializer_B, use_bias=self.use_bias)(x)
         return x
 
 
@@ -313,7 +324,8 @@ class TeacherNetwork(nn.Module):
         # x = nn.Dense(64)(x)
         # if self.activation != "identity":
         #    x = getattr(nn, self.activation)(x)
-        x = nn.Dense(8)(x)
+        x = nn.Dense(2, kernel_init=nn.initializers.normal(
+            0.01), use_bias=False)(x)
         if self.activation != "identity":
             x = getattr(nn, self.activation)(x)
         x = nn.Dense(self.features)(x)

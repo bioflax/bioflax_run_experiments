@@ -123,7 +123,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--initializer",
         type=str,
-        choices=["lecun", "uniform", "variance_scaling"],
+        choices=["lecun", "uniform", "variance_scaling", "normal"],
         default="lecun",
     )
     parser.add_argument(
@@ -183,6 +183,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--samples", type=int, default=500, help="number of samples for 1 epoch"
     )
+
+    parser.add_argument(
+        "--use_bias", type=str2bool, default=True, help="should bias be used"
+    )
+
     args = parser.parse_args()
 
     train(args)

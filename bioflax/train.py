@@ -53,6 +53,7 @@ def train(args):
     architecture = args.architecture
     tune_for_lr = args.tune_for_lr
     samples = args.samples
+    use_bias = args.use_bias
 
     print(tune_for_lr)
 
@@ -88,7 +89,7 @@ def train(args):
         activations = ['identity', 'identity']
         args.activations = activations
     elif architecture == 5:
-        hidden_layers = [500]
+        hidden_layers = [2]
         args.hidden_layers = hidden_layers
         activations = ['identity']
         args.activations = activations
@@ -148,6 +149,7 @@ def train(args):
         mode=mode,
         initializer_kernel=select_initializer(initializer, scale_w),
         initializer_B=select_initializer(initializer, scale_b),
+        use_bias=use_bias
     )
 
     # Backpropagation model to compute alignments
@@ -159,12 +161,10 @@ def train(args):
         mode="bp",
         initializer_kernel=select_initializer(initializer, scale_w),
         initializer_B=select_initializer(initializer, scale_b),
+        use_bias=use_bias
     )
 
     if tune_for_lr:
-        print(tune_for_lr)
-        print(use_wandb)
-        print("Konsti liegt gewaltig falsch")
         best_loss_rate = 10000.
         for rate in [0.01, 0.0316, 0.07, 0.1, 0.15, 0.2, 0.25, 0.316, 0.4, 0.5, 0.6, 0.7, 0.8]:
             iter_state = create_train_state(
@@ -176,7 +176,8 @@ def train(args):
                 in_dim=in_dim,
                 batch_size=batch_size,
                 seq_len=seq_len,
-                optimizer=optimizer
+                optimizer=optimizer,
+                use_bias=use_bias
             )
             for epoch in range(5):
                 (
@@ -225,12 +226,14 @@ def train(args):
         optimizer=optimizer
     )
 
-    jited_compute_metrics = jax.jit(compute_metrics, static_argnums=[3, 4])
+    jited_compute_metrics = jax.jit(compute_metrics, static_argnums=[3, 4, 5])
 
     teacher_model = BatchTeacher(
         features=output_features, activation=teacher_act)
     teacher_params = teacher_model.init(key_model_teacher, jnp.ones(
         (batch_size, in_dim, seq_len)))['params']
+
+    print(teacher_params)
 
     # Training loop over epochs
     conv_rate = 0
@@ -277,7 +280,7 @@ def train(args):
                     rel_norm_grads,
                     norm_,
                     norm
-                ) = jited_compute_metrics(state, grads_, grads, mode, lam)
+                ) = jited_compute_metrics(state, grads_, grads, mode, lam, use_bias)
 
                 if (i > 0):
                     conv_rate = loss/prev_loss
@@ -392,6 +395,8 @@ def train(args):
             if task == "classification":
                 wandb.run.summary["Best test accuracy"] = best_test_acc
                 wandb.run.summary["Best val accuracy"] = best_acc
+
+    print(state)
 
     # print(lr)
     if plot:
