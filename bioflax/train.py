@@ -290,7 +290,6 @@ def train(args):
 
             metrics = {
                 "Training loss epoch": loss,
-
                 # "lr" : lr_
             }
 
