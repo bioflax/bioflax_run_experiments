@@ -2,6 +2,70 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import jax.tree_util as jax_tree
+from functools import partial
+
+
+@partial(jax.jit, static_argnums=(3))
+def adjust_grads(grads, grads_, angle, use_fixed_direction, n):
+    if use_fixed_direction:
+        grads_extracted = n
+    else:
+        grads_extracted = reorganize_dict({"params": grads})["params"]
+    bias_, _ = jax_tree.tree_flatten(
+        flatten_matrices_in_tree(remove_keys(grads_, ['kernel', 'B'])))
+    bias, _ = jax_tree.tree_flatten(
+        flatten_matrices_in_tree(remove_keys(grads_extracted, ['kernel', 'B'])))
+    kernel_, _ = jax_tree.tree_flatten(
+        flatten_matrices_in_tree(remove_keys(grads_, ['bias', 'B'])))
+    kernel, _ = jax_tree.tree_flatten(
+        flatten_matrices_in_tree(remove_keys(grads_extracted, ['bias', 'B'])))
+    # g^Tg
+    dot_prods = jax_tree.tree_map((lambda a, b, c, d: jnp.dot(
+        a, b)+jnp.dot(c, d)), kernel_, kernel_, bias_, bias_)
+    # g_^Tg
+    dot_prods_ = jax_tree.tree_map((lambda a, b, c, d: jnp.dot(
+        a, b)+jnp.dot(c, d)), kernel_, kernel, bias_, bias)
+    # alpha = g_^Tg/g^Tg
+    alpha = jnp.sum(jnp.array(dot_prods_))/jnp.sum(jnp.array(dot_prods))
+
+    # p = g_ - alpha*g
+    p = jax.tree_map((lambda a, b: a - alpha*b), grads_extracted, grads_)
+
+    kernel_p, _ = jax_tree.tree_flatten(
+        flatten_matrices_in_tree(remove_keys(p, ['bias', 'B'])))
+    bias_p, _ = jax_tree.tree_flatten(
+        flatten_matrices_in_tree(remove_keys(p, ['kernel', 'B'])))
+
+    # compute norm of norm_p and norm_g
+    squared_norms_ = squared_norm(bias_p, kernel_p)
+    squared_norms = squared_norm(bias_, kernel_)
+    norm_p = jnp.sqrt(jnp.sum(jnp.array(squared_norms_)))
+    norm_g = jnp.sqrt(jnp.sum(jnp.array(squared_norms)))
+
+    # final_grad = norm_g * (cos(angle)/norm_g * g + sin(angle)/norm_p * p) = cos(angle)*g + norm_g * sin(angle)/norm_p * p
+    final_grad = jax.tree_map((lambda a, b: jnp.cos(jnp.radians(
+        angle))*a + norm_g * jnp.sin(jnp.radians(angle))/norm_p * b), grads_, p)
+    return update_kernels_and_biases(grads, final_grad)
+
+
+def update_kernels_and_biases(dict1, dict2):
+    # Iterate over each key in dict1
+    for key, value in dict1.items():
+        # Check if the key contains 'RandomDenseLinearFA' and has a corresponding key in dict2
+        if 'RandomDenseLinearFA' in key:
+            # Extract the index (e.g., 0, 1, ...) from the key
+            index = key.split('_')[-1]
+
+            # Construct the corresponding key in dict2 (e.g., 'Dense_0', 'Dense_1', ...)
+            corresponding_key = f'Dense_{index}'
+
+            # Check if the corresponding key exists in dict2
+            if corresponding_key in dict2:
+                # Replace the kernel and bias in dict1 with those from dict2
+                dict1[key]['Dense_0']['kernel'] = dict2[corresponding_key]['kernel']
+                dict1[key]['Dense_0']['bias'] = dict2[corresponding_key]['bias']
+
+    return dict1
 
 
 def compute_metrics(state, grads_,  grads, mode, lam, use_bias):

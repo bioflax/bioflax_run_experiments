@@ -192,6 +192,13 @@ if __name__ == "__main__":
         "--hid_lay_size", type=int, default=2, help="size_hidden_layer"
     )
 
+    parser.add_argument(
+        "--angle", type=int, default=-1, help="angle to offset gradient. If -1 then originally computed gradient will be used"
+    )
+
+    parser.add_argument(
+        "--use_fixed_direction", type=str2bool, default=False, help="fixed gradient misalginment direction"
+    )
     args = parser.parse_args()
 
     train(args)

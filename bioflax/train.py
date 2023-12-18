@@ -9,7 +9,7 @@ from tqdm import tqdm
 from typing import Any
 from .metric_computation import compute_metrics
 from .model import BatchBioNeuralNetwork, BatchTeacher, BioNeuralNetwork
-from .train_helpers import get_loss, reorganize_dict, prep_batch, create_train_state, train_epoch, train_step, validate, plot_sample, select_initializer
+from .train_helpers import get_loss, reorganize_dict, random_initialize_grad, prep_batch, create_train_state, train_epoch, train_step, validate, plot_sample, select_initializer
 from .dataloading import create_dataset
 
 
@@ -56,6 +56,8 @@ def train(args):
     samples = args.samples
     use_bias = args.use_bias
     hid_lay_size = args.hid_lay_size
+    angle = args.angle
+    use_fixed_direction = args.use_fixed_direction
 
     if dataset == "mnist":
         task = "classification"
@@ -98,7 +100,7 @@ def train(args):
         args.hidden_layers = hidden_layers
         activations = ['identity', 'identity']
         args.activations = activations
-    
+
     if use_wandb:
         # Make wandb config dictionary
         wandb.init(
@@ -112,8 +114,8 @@ def train(args):
     print("[*] Setting Randomness...")
     key = random.PRNGKey(seed)
     # das war evtl davor ganz falsch
-    key, key_data, key_model, key_model_lr, key_model_bp, key_model_teacher, key_dataset = random.split(
-        key, num=7)
+    key, key_data, key_model, key_model_lr, key_model_bp, key_model_teacher, key_dataset, key_rand = random.split(
+        key, num=8)
 
     # Create dataset
     (
@@ -192,7 +194,7 @@ def train(args):
                     avg_conv_rate,
                     avg_norm_,
                     avg_norm
-                ) = train_epoch(iter_state, bp_model, trainloader, loss_fn, n, mode, False, lam)
+                ) = train_epoch(iter_state, bp_model, trainloader, loss_fn, n, mode, False, lam, angle)
             print(train_loss_)
             if train_loss_ < best_loss_rate:
                 best_loss_rate = train_loss_
@@ -233,6 +235,26 @@ def train(args):
     teacher_params = teacher_model.init(key_model_teacher, jnp.ones(
         (batch_size, in_dim, seq_len)))['params']
 
+    key, key_data = jax.random.split(key, num=2)
+    initializer = jax.nn.initializers.normal(1.0)
+    inputs = initializer(key_data, shape=(batch_size, in_dim, seq_len))
+    # x = nn.initializers.uniform(scale=2)(
+    #    key, shape=(batch_size, d_input, L)) - 1.
+    labels = teacher_model.apply({'params': teacher_params}, inputs)
+    labels -= jnp.mean(labels, axis=0)
+
+    def loss_comp(params):
+        logits = bp_model.apply({"params": params}, inputs)
+        loss = get_loss(loss_fn, logits, labels)
+        return loss
+    _, grads_ = jax.value_and_grad(loss_comp)(
+        reorganize_dict({"params": state.params})["params"]
+    )
+
+    n = random_initialize_grad(grads_, key_rand)
+    print(n)
+    print(grads_)
+
     # Training loop over epochs
     conv_rate = 0
     best_loss, best_acc, best_epoch = 100000000, - \
@@ -245,7 +267,7 @@ def train(args):
 
         # , batch in enumerate(tqdm(trainloader)):
         for i in tqdm(range(samples)):
-            key, key_data = jax.random.split(key)
+            key, key_data = jax.random.split(key, num=2)
             initializer = jax.nn.initializers.normal(1.0)
             inputs = initializer(key_data, shape=(batch_size, in_dim, seq_len))
             # x = nn.initializers.uniform(scale=2)(
@@ -267,8 +289,8 @@ def train(args):
                     )
                 else:
                     _, grads_ = jax.value_and_grad(loss_comp)(state.params)
-
-            state, loss, grads = train_step(state, inputs, labels, loss_fn)
+            state, loss, grads = train_step(
+                state, inputs, labels, loss_fn, grads_, angle, use_fixed_direction, n)
             if compute_alignments:
                 (
                     bias_al_per_layer,
@@ -286,9 +308,9 @@ def train(args):
                 convergence_metric = wandb_grad_al_total * rel_norm_grads
                 cos_squared = wandb_grad_al_total*wandb_grad_al_total
                 theoret_scale_lr = wandb_grad_al_total * 1./(rel_norm_grads)
-                state.opt_state.hyperparams["learning_rate"]= jnp.array(
-                    theoret_scale_lr, dtype=jnp.float64
-                )
+                # state.opt_state.hyperparams["learning_rate"] = jnp.array(
+                #    theoret_scale_lr, dtype=jnp.float64
+                # )
             metrics = {
                 "Training loss epoch": loss,
                 # "lr" : lr_
@@ -397,7 +419,7 @@ def train(args):
                 wandb.run.summary["Best test accuracy"] = best_test_acc
                 wandb.run.summary["Best val accuracy"] = best_acc
 
-    #print(state)
+    # print(state)
 
     # print(lr)
     if plot:

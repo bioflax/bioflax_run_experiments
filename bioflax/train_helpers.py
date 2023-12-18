@@ -12,7 +12,7 @@ from jax.nn import one_hot
 from tqdm import tqdm
 from flax.training import train_state
 from functools import partial
-from .metric_computation import compute_metrics, summarize_metrics_epoch, reorganize_dict
+from .metric_computation import compute_metrics, summarize_metrics_epoch, reorganize_dict, adjust_grads
 
 
 def create_train_state(model, rng, lr, momentum, weight_decay, in_dim, batch_size, seq_len, optimizer):
@@ -60,7 +60,7 @@ def create_train_state(model, rng, lr, momentum, weight_decay, in_dim, batch_siz
     return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
 
-def train_epoch(state, model, trainloader, loss_function, n, mode, compute_alignments, lam):
+def train_epoch(state, model, trainloader, loss_function, n, mode, compute_alignments, lam, angle):
     """
     Training function for an epoch that loops over batches.
     ...
@@ -112,7 +112,8 @@ def train_epoch(state, model, trainloader, loss_function, n, mode, compute_align
                 _, grads_ = jax.value_and_grad(loss_comp)(state.params)
         # parallel_train_step = jax.vmap(train_step, in_axes=(None,0,0, None))
         # state, loss, grads = parallel_train_step(state, inputs, labels, loss_function)
-        state, loss, grads = train_step(state, inputs, labels, loss_function)
+        state, loss, grads = train_step(
+            state, inputs, labels, loss_function, grads_, angle)
         batch_losses.append(loss)
 
         if i < n and compute_alignments:
@@ -173,8 +174,8 @@ def train_epoch(state, model, trainloader, loss_function, n, mode, compute_align
         return state, jnp.mean(jnp.array(batch_losses)), 0, 0, 0, 0, 0, 0, 0, 0
 
 
-@partial(jax.jit, static_argnums=(3))
-def train_step(state, inputs, labels, loss_function):
+@partial(jax.jit, static_argnums=(3, 5, 6))
+def train_step(state, inputs, labels, loss_function, grads_, angle, use_fixed_direction, n):
     """
     Performs a single training step given a batch of data
     ...
@@ -196,7 +197,11 @@ def train_step(state, inputs, labels, loss_function):
         return loss
 
     loss, grads = jax.value_and_grad(loss_fn)(state.params)
-    state = state.apply_gradients(grads=grads)
+    if angle != -1:
+        grads = adjust_grads(grads, grads_, angle, use_fixed_direction, n)
+        state = state.apply_gradients(grads=grads)
+    else:
+        state = state.apply_gradients(grads=grads)
     return state, loss, grads
 
 
@@ -442,3 +447,27 @@ def uniform_init(a, b):
     def init_func(rng, shape, dtype=jnp.float32):
         return jax.random.uniform(rng, shape, dtype, minval=a, maxval=b)
     return init_func
+
+
+def random_initialize_grad(dictionary, key):
+    # Create a random key using the seed
+
+    random_dict = {}
+
+    for layer_key, layer_value in dictionary.items():
+        bias_shape = layer_value['bias'].shape
+        kernel_shape = layer_value['kernel'].shape
+        dtype = layer_value['bias'].dtype
+
+        # Split the key for generating bias and kernel
+        key, subkey = jax.random.split(key)
+
+        # Generate random values for bias and kernel
+        random_bias = jax.random.normal(subkey, bias_shape).astype(dtype)
+        key, subkey = jax.random.split(key)
+        random_kernel = jax.random.normal(subkey, kernel_shape).astype(dtype)
+
+        # Update the random_dict
+        random_dict[layer_key] = {'bias': random_bias, 'kernel': random_kernel}
+
+    return random_dict
