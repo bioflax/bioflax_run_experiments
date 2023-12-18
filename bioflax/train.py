@@ -2,6 +2,7 @@ import wandb
 import optax
 import jax
 import jax.numpy as jnp
+import flax.core.frozen_dict as froz_dict
 from jax import random
 from jax import config
 from tqdm import tqdm
@@ -54,8 +55,7 @@ def train(args):
     tune_for_lr = args.tune_for_lr
     samples = args.samples
     use_bias = args.use_bias
-
-    print(tune_for_lr)
+    hid_lay_size = args.hid_lay_size
 
     if dataset == "mnist":
         task = "classification"
@@ -89,7 +89,7 @@ def train(args):
         activations = ['identity', 'identity']
         args.activations = activations
     elif architecture == 5:
-        hidden_layers = [2]
+        hidden_layers = [hid_lay_size]
         args.hidden_layers = hidden_layers
         activations = ['identity']
         args.activations = activations
@@ -98,6 +98,7 @@ def train(args):
         args.hidden_layers = hidden_layers
         activations = ['identity', 'identity']
         args.activations = activations
+    
     if use_wandb:
         # Make wandb config dictionary
         wandb.init(
@@ -199,7 +200,6 @@ def train(args):
                 # print(rate)
 
         args.lr = lr
-        print(lr)
 
     # Model to run experiments with
     state = create_train_state(
@@ -229,11 +229,9 @@ def train(args):
     jited_compute_metrics = jax.jit(compute_metrics, static_argnums=[3, 4, 5])
 
     teacher_model = BatchTeacher(
-        features=output_features, activation=teacher_act)
+        features=output_features, activation=teacher_act, hid_lay_size=hid_lay_size)
     teacher_params = teacher_model.init(key_model_teacher, jnp.ones(
         (batch_size, in_dim, seq_len)))['params']
-
-    print(teacher_params)
 
     # Training loop over epochs
     conv_rate = 0
@@ -287,7 +285,10 @@ def train(args):
                 prev_loss = loss
                 convergence_metric = wandb_grad_al_total * rel_norm_grads
                 cos_squared = wandb_grad_al_total*wandb_grad_al_total
-
+                theoret_scale_lr = wandb_grad_al_total * 1./(rel_norm_grads)
+                state.opt_state.hyperparams["learning_rate"]= jnp.array(
+                    theoret_scale_lr, dtype=jnp.float64
+                )
             metrics = {
                 "Training loss epoch": loss,
                 # "lr" : lr_
@@ -305,6 +306,7 @@ def train(args):
                 metrics["Norm of est. gradient"] = norm_
                 metrics["Approx const. mu/l"] = (1.-conv_rate)/cos_squared
                 metrics["lr_final"] = lr
+                metrics["theoret_scale_lr"] = theoret_scale_lr
                 for i, al in enumerate(bias_al_per_layer):
                     metrics[f"Alignment bias gradient layer {i}"] = al
                 for i, al in enumerate(wandb_grad_al_per_layer):
@@ -395,7 +397,7 @@ def train(args):
                 wandb.run.summary["Best test accuracy"] = best_test_acc
                 wandb.run.summary["Best val accuracy"] = best_acc
 
-    print(state)
+    #print(state)
 
     # print(lr)
     if plot:

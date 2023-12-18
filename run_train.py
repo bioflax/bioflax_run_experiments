@@ -188,6 +188,10 @@ if __name__ == "__main__":
         "--use_bias", type=str2bool, default=True, help="should bias be used"
     )
 
+    parser.add_argument(
+        "--hid_lay_size", type=int, default=2, help="size_hidden_layer"
+    )
+
     args = parser.parse_args()
 
     train(args)

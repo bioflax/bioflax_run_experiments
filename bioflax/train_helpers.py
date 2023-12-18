@@ -38,7 +38,8 @@ def create_train_state(model, rng, lr, momentum, weight_decay, in_dim, batch_siz
     """
     dummy_input = jnp.ones((batch_size, in_dim, seq_len))
     params = model.init(rng, dummy_input)["params"]
-    sgd_optimizer = optax.sgd(learning_rate=lr, momentum=momentum)
+    sgd_optimizer = optax.inject_hyperparams(optax.sgd)(learning_rate=lr)
+
     adam = optax.adam(learning_rate=lr)
     if (optimizer == 'sgd'):
         tx = sgd_optimizer  # optax.chain(

@@ -318,13 +318,14 @@ class TeacherNetwork(nn.Module):
     """
     features: int = 1
     activation: str = "sigmoid"
+    hid_lay_size: int = 2
 
     @nn.compact
     def __call__(self, x):
         # x = nn.Dense(64)(x)
         # if self.activation != "identity":
         #    x = getattr(nn, self.activation)(x)
-        x = nn.Dense(2, kernel_init=nn.initializers.normal(
+        x = nn.Dense(self.hid_lay_size, kernel_init=nn.initializers.normal(
             0.01), use_bias=False)(x)
         if self.activation != "identity":
             x = getattr(nn, self.activation)(x)
