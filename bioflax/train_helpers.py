@@ -12,7 +12,7 @@ from jax.nn import one_hot
 from tqdm import tqdm
 from flax.training import train_state
 from functools import partial
-from .metric_computation import compute_metrics, summarize_metrics_epoch, reorganize_dict, adjust_grads
+from .metric_computation import compute_metrics, flatten_matrices_in_tree, remove_keys, summarize_metrics_epoch, reorganize_dict, adjust_grads, compute_wandb_al_total
 
 
 def create_train_state(model, rng, lr, momentum, weight_decay, in_dim, batch_size, seq_len, optimizer):
@@ -197,13 +197,40 @@ def train_step(state, inputs, labels, loss_function, grads_, angle, use_fixed_di
         return loss
 
     loss, grads = jax.value_and_grad(loss_fn)(state.params)
-    if angle != -1:
-        grads = adjust_grads(grads, grads_, angle, use_fixed_direction, n)
+    if angle == -1:
+        norm_p = 0
+        state = state.apply_gradients(grads=grads)
+    elif angle == -2: 
+        bias_, _ = jax_tree.tree_flatten(
+                flatten_matrices_in_tree(remove_keys(grads_, ['kernel', 'B'])))
+        bias, _ = jax_tree.tree_flatten(
+            flatten_matrices_in_tree(remove_keys(grads, ['kernel', 'B'])))
+        kernel_, _ = jax_tree.tree_flatten(
+            flatten_matrices_in_tree(remove_keys(grads_, ['bias', 'B'])))
+        kernel, _ = jax_tree.tree_flatten(
+            flatten_matrices_in_tree(remove_keys(grads, ['bias', 'B'])))
+        al, _, _ = compute_wandb_al_total(
+            bias_, bias, kernel_, kernel, True)
+        angle = jnp.arccos(al) * 180/jnp.pi
+        grads, norm_p = adjust_grads(grads, grads_, angle, use_fixed_direction, n, False)
         state = state.apply_gradients(grads=grads)
     else:
+        grads, norm_p = adjust_grads(grads, grads_, angle, use_fixed_direction, n, False)
         state = state.apply_gradients(grads=grads)
-    return state, loss, grads
+    return state, loss, grads, norm_p
 
+@partial(jax.jit, static_argnums=(4))
+def alignment_step(state, state_bp, inputs, labels, loss_function):
+
+    def loss_comp(params):
+                    logits = state_bp.apply_fn({"params": params}, inputs)
+                    loss = get_loss(loss_function, logits, labels)
+                    return loss
+    
+    _, grads_ = jax.value_and_grad(loss_comp)(
+                        reorganize_dict({"params": state.params})["params"]
+                    )
+    return grads_
 
 def get_loss(loss_function, logits, labels):
     """

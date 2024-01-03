@@ -5,8 +5,8 @@ import jax.tree_util as jax_tree
 from functools import partial
 
 
-@partial(jax.jit, static_argnums=(3))
-def adjust_grads(grads, grads_, angle, use_fixed_direction, n):
+@partial(jax.jit, static_argnums=(3, 5))
+def adjust_grads(grads, grads_, angle, use_fixed_direction, n, simulate):
     if use_fixed_direction:
         grads_extracted = n
     else:
@@ -31,21 +31,33 @@ def adjust_grads(grads, grads_, angle, use_fixed_direction, n):
     # p = g_ - alpha*g
     p = jax.tree_map((lambda a, b: a - alpha*b), grads_extracted, grads_)
 
+    
+
     kernel_p, _ = jax_tree.tree_flatten(
         flatten_matrices_in_tree(remove_keys(p, ['bias', 'B'])))
     bias_p, _ = jax_tree.tree_flatten(
         flatten_matrices_in_tree(remove_keys(p, ['kernel', 'B'])))
+    
+    jnp.allclose(0, jnp.sum(jnp.array(jax.tree_map((lambda a, b, c, d : a.dot(b) + c.dot(d)), kernel_p, kernel_, bias_p, bias))))
 
     # compute norm of norm_p and norm_g
     squared_norms_ = squared_norm(bias_p, kernel_p)
     squared_norms = squared_norm(bias_, kernel_)
+    squared_norms_fa = squared_norm(bias, kernel)
     norm_p = jnp.sqrt(jnp.sum(jnp.array(squared_norms_)))
     norm_g = jnp.sqrt(jnp.sum(jnp.array(squared_norms)))
+    norm_g_ = jnp.sqrt(jnp.sum(jnp.array(squared_norms_fa)))
 
     # final_grad = norm_g * (cos(angle)/norm_g * g + sin(angle)/norm_p * p) = cos(angle)*g + norm_g * sin(angle)/norm_p * p
-    final_grad = jax.tree_map((lambda a, b: jnp.cos(jnp.radians(
-        angle))*a + norm_g * jnp.sin(jnp.radians(angle))/norm_p * b), grads_, p)
-    return update_kernels_and_biases(grads, final_grad)
+
+    if simulate: 
+        #this is an effort to mimic FA via true gradient offsets and sceling so in this case I want the norm
+        final_grad = jax.tree_map((lambda a, b: norm_g_ * (jnp.cos(jnp.radians(
+            angle))/norm_g*a + jnp.sin(jnp.radians(angle))/norm_p * b)), grads_, p) 
+    else: 
+        final_grad = jax.tree_map((lambda a, b: jnp.cos(jnp.radians(
+            angle))*a + norm_g * jnp.sin(jnp.radians(angle))/norm_p * b), grads_, p)
+    return update_kernels_and_biases(grads, final_grad), norm_p
 
 
 def update_kernels_and_biases(dict1, dict2):
@@ -67,7 +79,7 @@ def update_kernels_and_biases(dict1, dict2):
 
     return dict1
 
-
+@partial(jax.jit, static_argnums = (3,4,5))
 def compute_metrics(state, grads_,  grads, mode, lam, use_bias):
     """
     Compute alignment metrics of current epoch for given state of the model and current gradients. Metrics computed are:
@@ -105,7 +117,7 @@ def compute_metrics(state, grads_,  grads, mode, lam, use_bias):
         flatten_matrices_in_tree(remove_keys(grads_, ['bias', 'B'])))
     kernel, _ = jax_tree.tree_flatten(
         flatten_matrices_in_tree(remove_keys(grads, ['bias', 'B'])))
-
+    
     bias_al_per_layer = compute_bias_grad_al_layerwise(bias_, bias)
     wandb_grad_al_per_layer = compute_wandb_grad_al_layerwise(
         bias_, bias, kernel_, kernel, use_bias)
@@ -113,7 +125,9 @@ def compute_metrics(state, grads_,  grads, mode, lam, use_bias):
         bias_, bias, kernel_, kernel, use_bias)
     rel_norm_grads = compute_rel_norm(bias_, bias, kernel_, kernel, use_bias)
     return bias_al_per_layer, wandb_grad_al_per_layer, wandb_grad_al_total, weight_al_per_layer, rel_norm_grads, norm_, norm
-
+    """
+    return 0,0,0,0,0,0,0
+    """
 
 def summarize_metrics_epoch(bias_als_per_layer, wandb_grad_als_per_layer, wandb_grad_als_total, weight_als_per_layer, rel_norms_grads, norms_, norms, mode):
     """
@@ -148,7 +162,7 @@ def summarize_metrics_epoch(bias_als_per_layer, wandb_grad_als_per_layer, wandb_
     return avg_bias_al_per_layer, avg_wandb_grad_al_per_layer, avg_wandb_grad_al_total, avg_weight_al_per_layer, avg_rel_norm_grads, avg_norm_, avg_norm
 
 
-# @jax.jit
+@jax.jit
 def compute_interpolate_weight_alignment(params, lam):
     """
     Computes the alignment of feedforward and feedback matrices per layer.
@@ -171,7 +185,7 @@ def compute_interpolate_weight_alignment(params, lam):
     return layerwise_alignments
 
 
-# @jax.jit
+@jax.jit
 def compute_weight_alignment(params):
     """
     Computes the alignment of feedforward and feedback matrices per layer.
@@ -193,7 +207,7 @@ def compute_weight_alignment(params):
     return layerwise_alignments
 
 
-# @jax.jit
+@jax.jit
 def compute_bias_grad_al_layerwise(bias_, bias):
     """
     Computes the alignment of bias gradients per layer: cos(theta) = (bias_.dot(bias))/(||bias_||*||bias||)
@@ -210,7 +224,7 @@ def compute_bias_grad_al_layerwise(bias_, bias):
     return layerwise_alignments
 
 
-# @jax.jit
+@partial(jax.jit, static_argnums=(4))
 def compute_wandb_grad_al_layerwise(bias_, bias, kernel_, kernel, use_bias):
     """
     Computes the alignment of weight & bias gradients per layer: 
@@ -239,7 +253,7 @@ def compute_wandb_grad_al_layerwise(bias_, bias, kernel_, kernel, use_bias):
     return layerwise_alignments
 
 
-# @jax.jit
+@partial(jax.jit, static_argnums=(4))
 def compute_wandb_al_total(bias_, bias, kernel_, kernel, use_bias):
     """
     Computes the alignment of total gradients per layer:
@@ -278,7 +292,7 @@ def compute_wandb_al_total(bias_, bias, kernel_, kernel, use_bias):
     return res, norm_, norm
 
 
-# @jax.jit
+@partial(jax.jit, static_argnums=(4))
 def compute_rel_norm(bias_, bias, kernel_, kernel, use_bias):
     """
     Computes the relative norm of gradient of current model compared to gradient of comparison model:

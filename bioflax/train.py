@@ -9,7 +9,7 @@ from tqdm import tqdm
 from typing import Any
 from .metric_computation import compute_metrics
 from .model import BatchBioNeuralNetwork, BatchTeacher, BioNeuralNetwork
-from .train_helpers import get_loss, reorganize_dict, random_initialize_grad, prep_batch, create_train_state, train_epoch, train_step, validate, plot_sample, select_initializer
+from .train_helpers import alignment_step, get_loss, reorganize_dict, random_initialize_grad, prep_batch, create_train_state, train_epoch, train_step, validate, plot_sample, select_initializer
 from .dataloading import create_dataset
 
 
@@ -118,26 +118,27 @@ def train(args):
         key, num=8)
 
     # Create dataset
-    (
-        trainloader,
-        valloader,
-        testloader,
-        output_features,
-        seq_len,
-        in_dim,
-        train_size
-    ) = create_dataset(
-        seed=key_dataset[0].item(),
-        batch_size=batch_size,
-        dataset=dataset,
-        val_split=val_split,
-        input_dim=in_dim,
-        output_dim=output_features,
-        L=seq_len,
-        train_set_size=train_set_size,
-        test_set_size=test_set_size,
-        teacher_act=teacher_act,
-    )
+    if test_set_size > 0 or train_set_size > 0:
+        (
+            trainloader,
+            valloader,
+            testloader,
+            output_features,
+            seq_len,
+            in_dim,
+            train_size
+        ) = create_dataset(
+            seed=key_dataset[0].item(),
+            batch_size=batch_size,
+            dataset=dataset,
+            val_split=val_split,
+            input_dim=in_dim,
+            output_dim=output_features,
+            L=seq_len,
+            train_set_size=train_set_size,
+            test_set_size=test_set_size,
+            teacher_act=teacher_act,
+        )
     print(f"[*] Starting training on '{dataset}'...")
 
     # Learning rate scheduler
@@ -216,7 +217,7 @@ def train(args):
         optimizer=optimizer
     )
 
-    _ = create_train_state(
+    state_bp = create_train_state(
         model=bp_model,
         rng=key_model_bp,
         lr=lr,  # scheduler, relevant change at the moment
@@ -241,7 +242,7 @@ def train(args):
     # x = nn.initializers.uniform(scale=2)(
     #    key, shape=(batch_size, d_input, L)) - 1.
     labels = teacher_model.apply({'params': teacher_params}, inputs)
-    labels -= jnp.mean(labels, axis=0)
+    # das mal weglassen sonst unmöglich die teacher weights zu recovern labels -= jnp.mean(labels, axis=0)
 
     def loss_comp(params):
         logits = bp_model.apply({"params": params}, inputs)
@@ -252,8 +253,6 @@ def train(args):
     )
 
     n = random_initialize_grad(grads_, key_rand)
-    print(n)
-    print(grads_)
 
     # Training loop over epochs
     conv_rate = 0
@@ -273,23 +272,15 @@ def train(args):
             # x = nn.initializers.uniform(scale=2)(
             #    key, shape=(batch_size, d_input, L)) - 1.
             labels = teacher_model.apply({'params': teacher_params}, inputs)
-            labels -= jnp.mean(labels, axis=0)
+            # das mal weglassen sonst unmöglich teacher weights zu recovern labels -= jnp.mean(labels, axis=0)
             # inputs, labels = prep_batch(batch)
 
             if compute_alignments:
-
-                def loss_comp(params):
-                    logits = bp_model.apply({"params": params}, inputs)
-                    loss = get_loss(loss_fn, logits, labels)
-                    return loss
-
                 if mode != "bp":
-                    _, grads_ = jax.value_and_grad(loss_comp)(
-                        reorganize_dict({"params": state.params})["params"]
-                    )
+                    grads_ = alignment_step(state, state_bp, inputs, labels, loss_fn)
                 else:
-                    _, grads_ = jax.value_and_grad(loss_comp)(state.params)
-            state, loss, grads = train_step(
+                    grads_ = grads
+            state, loss, grads, norm_p = train_step(
                 state, inputs, labels, loss_fn, grads_, angle, use_fixed_direction, n)
             if compute_alignments:
                 (
@@ -301,7 +292,6 @@ def train(args):
                     norm_,
                     norm
                 ) = jited_compute_metrics(state, grads_, grads, mode, lam, use_bias)
-
                 if (i > 0):
                     conv_rate = loss/prev_loss
                 prev_loss = loss
@@ -315,8 +305,8 @@ def train(args):
                 "Training loss epoch": loss,
                 # "lr" : lr_
             }
-
             if compute_alignments:
+                metrics["norm_p"] = norm_p
                 metrics["lambda"] = lam
                 metrics["Relative norms gradients"] = rel_norm_grads
                 metrics["Gradient alignment"] = wandb_grad_al_total
@@ -338,7 +328,7 @@ def train(args):
                         metrics[f"Alignment layer {i}"] = al
             if use_wandb:
                 wandb.log(metrics)
-
+        """
         if valloader is not None:
             print(f"[*] Running Epoch {epoch + 1} Validation...")
             val_loss, val_acc = validate(
@@ -418,6 +408,7 @@ def train(args):
             if task == "classification":
                 wandb.run.summary["Best test accuracy"] = best_test_acc
                 wandb.run.summary["Best val accuracy"] = best_acc
+        """
 
     # print(state)
 

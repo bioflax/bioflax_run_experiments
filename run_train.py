@@ -137,7 +137,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--wandb_project",
         type=str,
-        default="test_project",
+        default="weight_init",
         help="Weights & Biases project name. Type: str, Default: 'bioflax'",
     )
     parser.add_argument(

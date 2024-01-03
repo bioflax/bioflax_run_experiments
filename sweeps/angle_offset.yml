@@ -6,12 +6,14 @@ parameters:
   batch_size:
     value: 4096
   train_set_size:
-    value: 10
+    value: 0
   test_set_size:
-    value: 10
+    value: 0
   seq_len:
     values:
       - 500
+      - 100
+      - 10
   output_features:
     values:
       - 1
@@ -26,10 +28,11 @@ parameters:
   epochs:
     value: 1
   samples:
-    value: 500
+    value: 2500
   lr:
     values:
       - 0.1
+      - 0.316
   optimizer:
     value: "sgd"
   tune_for_lr:
@@ -38,23 +41,45 @@ parameters:
     value: "weight_init"
   compute_alignments:
     value: True
+  initializer:
+    value: variance_scaling
+  scale_w:
+    value: 0.1
+  scale_b: 
+    value: 0.1
   use_bias:
     values:
       - True
   hid_lay_size:
     values:
+      - 2
+      - 8
+      - 32
       - 64
   angle:
     values:
       - -1
       - 0
+      - 5
+      - 10
       - 15
+      - 20
+      - 25
       - 30
-      - 45
-      - 60
-      - 75
-      - 90
+      - 40
+      - 50
+      - 65
+      - 80
   jax_seed:
-    value: 10
+    values: 
+      - 20
+      - 30
+      - 40
+      - 50
+      - 60
+      - 70
+      - 80
+      - 90
   use_fixed_direction:
-    value: True
+    values:
+      - True
