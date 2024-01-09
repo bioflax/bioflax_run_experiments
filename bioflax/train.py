@@ -49,6 +49,9 @@ def train(args):
     architecture = args.architecture
     tune_for_lr = args.tune_for_lr
 
+    if mode == 'bp':
+        compute_alignments = False
+
     if dataset == "mnist":
         task = "classification"
         loss_fn = "CE"
@@ -59,8 +62,18 @@ def train(args):
 
     if dataset == "sinreg":
         output_features = 1
-
-    if architecture == 1:
+    
+    if use_wandb:
+        # Make wandb config dictionary
+        wandb.init(
+            project=project,
+            job_type="model_training",
+            config=vars(args),
+            entity=entity,
+        )
+    """
+    standard
+    if architecture == 5:
         hidden_layers = [1000]
         args.hidden_layers = hidden_layers
         activations = ['relu']
@@ -70,7 +83,7 @@ def train(args):
         args.hidden_layers = hidden_layers
         activations = ['relu', 'relu']
         args.activations = activations
-    elif architecture == 3:
+    elif architecture == 6:
         hidden_layers = [10, 10]
         args.hidden_layers = hidden_layers
         activations = ['identity', 'identity']
@@ -80,14 +93,62 @@ def train(args):
         args.hidden_layers = hidden_layers
         activations = ['identity']
         args.activations = activations
-    if use_wandb:
-        # Make wandb config dictionary
-        wandb.init(
-            project=project,
-            job_type="model_training",
-            config=vars(args),
-            entity=entity,
-        )
+    elif architecture == 1:
+        hidden_layers = [500, 500]
+        args.hidden_layers = hidden_layers
+        activations = ['sigmoid', 'sigmoid']
+        args.activations = activations
+    elif architecture == 3:
+        hidden_layers = [500, 500]
+        args.hidden_layers = hidden_layers
+        activations = ['leaky_relu', 'leaky_relu']
+        args.activations = activations
+    """
+    """
+    #upon testing activations.yml uncomment this
+    if architecture == 1:
+            hidden_layers = [500, 500]
+            args.hidden_layers = hidden_layers
+            activations = ['sigmoid', 'sigmoid']
+            args.activations = activations
+    elif architecture == 2:
+        hidden_layers = [500, 500]
+        args.hidden_layers = hidden_layers
+        activations = ['relu', 'relu']
+        args.activations = activations
+    elif architecture == 3:
+        hidden_layers = [500, 500]
+        args.hidden_layers = hidden_layers
+        activations = ['leaky_relu', 'leaky_relu']
+        args.activations = activations
+    """
+
+    #upon testing architecture.yml uncomment this
+    if architecture == 1:
+        hidden_layers = [1000]
+        args.hidden_layers = hidden_layers
+        activations = ['relu']
+        args.activations = activations
+    elif architecture == 2:
+        hidden_layers = [1000, 1000, 1000]
+        args.hidden_layers = hidden_layers
+        activations = ['relu', 'relu', 'relu']
+        args.activations = activations
+    elif architecture == 3:
+        hidden_layers = [1000, 1000, 1000, 1000, 1000]
+        args.hidden_layers = hidden_layers
+        activations = ['relu', 'relu', 'relu', 'relu', 'relu']
+        args.activations = activations
+    elif architecture == 4:
+        hidden_layers = [1000, 500, 10, 500, 1000]
+        args.hidden_layers = hidden_layers
+        activations = ['relu', 'relu', 'relu', 'relu', 'relu']
+        args.activations = activations
+    elif architecture == 5:
+        hidden_layers = [500, 500]
+        args.hidden_layers = hidden_layers
+        activations = ['relu', 'relu']
+        args.activations = activations
 
     # Set seed for randomness
     print("[*] Setting Randomness...")
@@ -192,10 +253,10 @@ def train(args):
         optimizer=optimizer
     )
 
-    _ = create_train_state(
+    state_bp = create_train_state(
         model=bp_model,
         rng=key_model_bp,
-        lr=lr,  # scheduler, relevant change at the moment
+        lr=lr,  # scheduler, #relevant change at the moment
         momentum=momentum,
         weight_decay=weight_decay,
         in_dim=in_dim,
@@ -208,7 +269,7 @@ def train(args):
     best_loss, best_acc, best_epoch = 100000000, - \
         100000000.0, 0  # This best loss is val_loss
     for i, epoch in enumerate(range(epochs)):  # (args.epochs):
-        print(f"[*] Starting training epoch {epoch + 1}...")
+        #print(f"[*] Starting training epoch {epoch + 1}...")
 
         # print(state.step)
         # lr_ = scheduler(state.step)
@@ -223,7 +284,7 @@ def train(args):
             avg_conv_rate,
             avg_norm_,
             avg_norm
-        ) = train_epoch(state, bp_model, trainloader, loss_fn, n, mode, compute_alignments, lam)
+        ) = train_epoch(state, state_bp, trainloader, loss_fn, n, mode, compute_alignments, lam)
         if (i > 0):
             avg_conv_rate = train_loss/prev_loss
         prev_loss = train_loss
@@ -231,41 +292,41 @@ def train(args):
         cos_squared = avg_wandb_grad_al_total*avg_wandb_grad_al_total
 
         if valloader is not None:
-            print(f"[*] Running Epoch {epoch + 1} Validation...")
+            #print(f"[*] Running Epoch {epoch + 1} Validation...")
             val_loss, val_acc = validate(
                 state, valloader, seq_len, in_dim, loss_fn)
 
-            print(f"[*] Running Epoch {epoch + 1} Test...")
+            #print(f"[*] Running Epoch {epoch + 1} Test...")
             test_loss, test_acc = validate(
                 state, testloader, seq_len, in_dim, loss_fn)
 
-            print(f"\n=>> Epoch {epoch + 1} Metrics ===")
-            print(
-                f"\tTrain Loss: {train_loss:.5f} "
-                f"-- Val Loss: {val_loss:.5f} "
-                f"-- avg_conv_rate: {avg_conv_rate:.5f} "
-                f"-- Test Loss: {test_loss:.5f}"
-            )
-            if task == "classification":
-                print(
-                    f"\tVal Accuracy: {val_acc:.4f} " f"-- Test Accuracy: {test_acc:.4f} ")
+            #print(f"\n=>> Epoch {epoch + 1} Metrics ===")
+            #print(
+            #    f"\tTrain Loss: {train_loss:.5f} "
+            #   f"-- Val Loss: {val_loss:.5f} "
+            #    f"-- avg_conv_rate: {avg_conv_rate:.5f} "
+            #    f"-- Test Loss: {test_loss:.5f}"
+            #)
+            #if task == "classification":
+            #    print(
+            #        f"\tVal Accuracy: {val_acc:.4f} " f"-- Test Accuracy: {test_acc:.4f} ")
         else:
             # Use test set as validation set
-            print(f"[*] Running Epoch {epoch + 1} Test...")
+            #print(f"[*] Running Epoch {epoch + 1} Test...")
             val_loss, val_acc = validate(
                 state, testloader, seq_len, in_dim, loss_fn)
 
-            print(f"\n=>> Epoch {epoch + 1} Metrics ===")
-            print(
-                f"\tTrain loss: {train_loss:.5f}" f"-- Test loss: {val_loss:.5f}")
-            if task == "classification":
-                print(f"-- Test accuracy: {val_acc:.4f}\n")
+            #print(f"\n=>> Epoch {epoch + 1} Metrics ===")
+            #print(
+            #    f"\tTrain loss: {train_loss:.5f}" f"-- Test loss: {val_loss:.5f}")
+            #if task == "classification":
+            #   print(f"-- Test accuracy: {val_acc:.4f}\n")
 
-        if compute_alignments:
-            print(
-                f"\tRelative norm gradients: {avg_rel_norm_grads:.4f} "
-                f"-- Gradient alignment: {avg_wandb_grad_al_total:.4f}"
-            )
+        #if compute_alignments:
+            #print(
+            #    f"\tRelative norm gradients: {avg_rel_norm_grads:.4f} "
+            #    f"-- Gradient alignment: {avg_wandb_grad_al_total:.4f}"
+            #)
 
         if val_acc > best_acc:
             # Increment counters etc.
@@ -276,18 +337,18 @@ def train(args):
                 best_test_loss, best_test_acc = best_loss, best_acc
 
         # Print best accuracy & loss so far...
-        if task == "regression":
-            print(
-                f"\tBest val loss: {best_loss:.5f} at epoch {best_epoch + 1}\n"
-                f"\tBest test loss: {best_test_loss:.5f} at epoch {best_epoch + 1}\n"
-            )
-        elif task == "classification":
-            print(
-                f"\tBest val loss: {best_loss:.5f} -- Best val accuracy:"
-                f" {best_acc:.4f} at epoch {best_epoch + 1}\n"
-                f"\tBest test loss: {best_test_loss:.5f} -- Best test accuracy:"
-                f" {best_test_acc:.4f} at epoch {best_epoch + 1}\n"
-            )
+        #if task == "regression":
+        #    print(
+        #        f"\tBest val loss: {best_loss:.5f} at epoch {best_epoch + 1}\n"
+        #       f"\tBest test loss: {best_test_loss:.5f} at epoch {best_epoch + 1}\n"
+        #    )
+        #elif task == "classification":
+        #    print(
+        #        f"\tBest val loss: {best_loss:.5f} -- Best val accuracy:"
+        #        f" {best_acc:.4f} at epoch {best_epoch + 1}\n"
+        #        f"\tBest test loss: {best_test_loss:.5f} -- Best test accuracy:"
+        #        f" {best_test_acc:.4f} at epoch {best_epoch + 1}\n"
+        #    )
 
         metrics = {
             "Training loss": train_loss,

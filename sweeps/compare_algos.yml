@@ -1,9 +1,12 @@
 method: grid
 program: run_train.py
+dataset:
+  value : 'mnist'
 parameters:
   lr:
     values:
       - 0.0316
+      - 0.1
   optimizer:
     value: 'sgd'
   batch_size:
@@ -11,32 +14,24 @@ parameters:
   tune_for_lr:
     value: False
   mode:
-    value: 'interpolate_fa_bp'
+    values: 
+      - 'bp'
+      - 'fa'
+      - 'dfa'
+      - 'kp'
   architecture:
     values:
       - 2
   epochs:
-    value: 750
+    value: 200
   wandb_project:
     value: 'weight_init'
   initializer:
     value: 'lecun'
   compute_alignments: 
     value : True
-  lam:
-    values:
-      - 0.0
-      - 0.1
-      - 0.2
-      - 0.3
-      - 0.4
-      - 0.5
-      - 0.6
-      - 0.7
-      - 0.8
-      - 0.9
-      - 1.0
   jax_seed:
-    values:
+    values: 
+      - 0
       - 10
-
+      - 20

@@ -165,7 +165,6 @@ class RandomDenseLinearDFAHidden(nn.Module):
         custom_f = nn.custom_vjp(fn=f, forward_fn=fwd, backward_fn=bwd)
         return custom_f(forward_module, x, B)
 
-
 class RandomDenseLinearInterpolateFABP(nn.Module):
     """
     Creates a linear layer which interpolates between feedback alignment and backpropagation.
