@@ -48,6 +48,9 @@ def train(args):
     lam = args.lam
     architecture = args.architecture
     tune_for_lr = args.tune_for_lr
+    period = args.period
+    p = args.probability
+    periodically = args.periodically
 
     if mode == 'bp':
         compute_alignments = False
@@ -71,8 +74,8 @@ def train(args):
             config=vars(args),
             entity=entity,
         )
-    """
-    standard
+    
+    #standard
     if architecture == 5:
         hidden_layers = [1000]
         args.hidden_layers = hidden_layers
@@ -84,7 +87,7 @@ def train(args):
         activations = ['relu', 'relu']
         args.activations = activations
     elif architecture == 6:
-        hidden_layers = [10, 10]
+        hidden_layers = [3, 3]
         args.hidden_layers = hidden_layers
         activations = ['identity', 'identity']
         args.activations = activations
@@ -103,7 +106,7 @@ def train(args):
         args.hidden_layers = hidden_layers
         activations = ['leaky_relu', 'leaky_relu']
         args.activations = activations
-    """
+    
     """
     #upon testing activations.yml uncomment this
     if architecture == 1:
@@ -122,7 +125,7 @@ def train(args):
         activations = ['leaky_relu', 'leaky_relu']
         args.activations = activations
     """
-
+    """
     #upon testing architecture.yml uncomment this
     if architecture == 1:
         hidden_layers = [1000]
@@ -149,11 +152,16 @@ def train(args):
         args.hidden_layers = hidden_layers
         activations = ['relu', 'relu']
         args.activations = activations
-
+    elif architecture == 6:
+        hidden_layers = [5, 5]
+        args.hidden_layers = hidden_layers
+        activations = ['relu', 'relu']
+        args.activations = activations
+    """
     # Set seed for randomness
     print("[*] Setting Randomness...")
     key = random.PRNGKey(seed)
-    key_data, key_model, key_model_bp = random.split(key, num=3)
+    key_data, key_model, key_model_bp, key_model_reset = random.split(key, num=4)
 
     # Create dataset
     (
@@ -202,6 +210,16 @@ def train(args):
         initializer_kernel=select_initializer(initializer, scale_w),
         initializer_B=select_initializer(initializer, scale_b),
     )
+
+    #reset_model = BatchBioNeuralNetwork(
+    #    hidden_layers=hidden_layers,
+    #    activations=activations,
+    #    interpolation_factor=lam,
+    #    features=output_features,
+    #    mode="reset",
+    #    initializer_kernel=select_initializer(initializer, scale_w),
+    #    initializer_B=select_initializer(initializer, scale_b),
+    #)
 
     key, key_model = random.split(key, num=2)
     if tune_for_lr:
@@ -265,14 +283,37 @@ def train(args):
         optimizer=optimizer
     )
 
+    #state_reset = create_train_state(
+    #    model=reset_model,
+    #    rng=key_model_reset,
+    #    lr=lr,  # scheduler, #relevant change at the moment
+    #    momentum=momentum,
+    #    weight_decay=weight_decay,
+    #    in_dim=in_dim,
+    #    batch_size=batch_size,
+    #    seq_len=seq_len,
+    #    optimizer=optimizer
+    #)
+
+
+    reset = False
     # Training loop over epochs
     best_loss, best_acc, best_epoch = 100000000, - \
         100000000.0, 0  # This best loss is val_loss
     for i, epoch in enumerate(range(epochs)):  # (args.epochs):
         #print(f"[*] Starting training epoch {epoch + 1}...")
-
+        key_mask, key = random.split(key, num=2)
         # print(state.step)
         # lr_ = scheduler(state.step)
+        if(period == -1): #-1 is FA pure (in frist periodic run it was 0)
+            reset = False
+        else:
+            if(periodically and i % period == 0):
+                reset = True
+            elif( (not periodically) and i == period-1):
+                reset = True
+            else:
+                reset = False
         (
             state,
             train_loss,
@@ -284,7 +325,9 @@ def train(args):
             avg_conv_rate,
             avg_norm_,
             avg_norm
-        ) = train_epoch(state, state_bp, trainloader, loss_fn, n, mode, compute_alignments, lam)
+        ) = train_epoch(state, state_bp, trainloader, 
+                        loss_fn, n, mode, compute_alignments, lam, reset, p, key_mask)
+                        #, state_reset, trainloader, loss_fn, n, mode, compute_alignments, lam, reset)
         if (i > 0):
             avg_conv_rate = train_loss/prev_loss
         prev_loss = train_loss

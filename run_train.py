@@ -77,7 +77,7 @@ if __name__ == "__main__":
         "--mode",
         type=str,
         default="fa",
-        choices=["bp", "fa", "kp", "dfa", "interpolate_fa_bp", "interpolate_fa_bp_start"],
+        choices=["bp", "fa", "kp", "dfa", "interpolate_fa_bp", "reset"],
         help="Training mode. Choices: ['bp', 'fa', 'kp', 'dfa', 'interpolate_fa_bp]. Type: str, Default: 'fa'",
     )
     parser.add_argument(
@@ -178,6 +178,18 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--tune_for_lr", type=str2bool, default=False, help="should lr be tuned for setting"
+    )
+
+    parser.add_argument(
+        "--period", type=int, default=0, help="period for interpolating forward and backward weights"
+    )
+
+    parser.add_argument(
+        "--probability", type=float, default=1.0, help="when interpolating periodically defines probability of mask entry value that masks the interpolation (in particulr W) to be 1"
+    )
+
+    parser.add_argument(
+        "--periodically", type=str2bool, default = False, help="is the period considered as a one time updated or conducted periodically"
     )
 
     args = parser.parse_args()

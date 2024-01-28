@@ -207,6 +207,51 @@ class RandomDenseLinearInterpolateFABP(nn.Module):
             self.features, kernel_init=self.initializer_kernel)
         custom_f = nn.custom_vjp(fn=f, forward_fn=fwd, backward_fn=bwd)
         return custom_f(forward_module, x, B)
+    
+
+class ResetLayer(nn.Module):
+    """
+    Creates a linear layer which interpolates between feedback alignment and backpropagation.
+    ...
+    Attributes
+    __________
+    features : int
+        number of output features
+    interpolation_factor : float
+        interpolation factor for linear interpolation between fa and bp. A value of 1 represents fa and a value of 0 bp.
+    """
+
+    features: int
+    interpolation_factor: float
+    initializer_kernel: Any = nn.initializers.lecun_normal()
+    initializer_B: Any = nn.initializers.lecun_normal()
+
+    @nn.compact
+    def __call__(self, x):
+        B = self.param("B", self.initializer_B,
+                       (jnp.shape(x)[-1], self.features))
+
+        def f(module, x, B):
+            return module(x)
+
+        def fwd(module, x, B):
+            primals_out, vjp_fun = nn.vjp(f, module, x, B)
+
+            inter = self.interpolation_factor * B + \
+                (1-self.interpolation_factor) * \
+                module.variables['params']['kernel']
+            return primals_out, (vjp_fun, B, inter)
+
+        def bwd(vjp_fn_B, delta):
+            vjp_fn, B, inter = vjp_fn_B
+            delta_params, _, _ = vjp_fn(delta)
+            delta_x = (inter @ delta.transpose()).transpose()
+            return (delta_params, delta_x, B - inter)
+
+        forward_module = nn.Dense(
+            self.features, kernel_init=self.initializer_kernel)
+        custom_f = nn.custom_vjp(fn=f, forward_fn=fwd, backward_fn=bwd)
+        return custom_f(forward_module, x, B)
 
 
 """
@@ -285,6 +330,11 @@ class BioNeuralNetwork(nn.Module):
                     features, self.interpolation_factor, self.initializer_kernel, self.initializer_B)(x)
                 if activation != "identity":
                     x = getattr(nn, activation)(x)
+            elif self.mode == "reset":
+                x = ResetLayer(
+                    features, self.interpolation_factor, self.initializer_kernel, self.initializer_B)(x)
+                if activation != "identity":
+                    x = getattr(nn, activation)(x)
         if self.mode == "bp":
             x = nn.Dense(self.features, kernel_init=self.initializer_kernel)(x)
         elif self.mode == "fa":
@@ -298,6 +348,9 @@ class BioNeuralNetwork(nn.Module):
                 self.features, self.initializer_kernel, self.initializer_B)(x)
         elif self.mode == "interpolate_fa_bp":
             x = RandomDenseLinearInterpolateFABP(
+                self.features, self.interpolation_factor, self.initializer_kernel, self.initializer_B)(x)
+        elif self.mode == "reset":
+            x = ResetLayer(
                 self.features, self.interpolation_factor, self.initializer_kernel, self.initializer_B)(x)
         return x
 

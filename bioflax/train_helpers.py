@@ -13,6 +13,7 @@ from tqdm import tqdm
 from flax.training import train_state
 from functools import partial
 from .metric_computation import compute_metrics, summarize_metrics_epoch, reorganize_dict
+from dataclasses import replace
 
 
 def create_train_state(model, rng, lr, momentum, weight_decay, in_dim, batch_size, seq_len, optimizer):
@@ -73,7 +74,9 @@ def compute_bp_grads(state, state_bp, inputs, labels, loss_function):
     return grads_
 
 
-def train_epoch(state, state_bp, trainloader, loss_function, n, mode, compute_alignments, lam):
+def train_epoch(state, state_bp, trainloader, 
+                loss_function, n, mode, compute_alignments, lam, reset, p, key): 
+                #state_reset, trainloader,loss_function, n, mode, compute_alignments, lam, reset):
     """
     Training function for an epoch that loops over batches.
     ...
@@ -108,14 +111,26 @@ def train_epoch(state, state_bp, trainloader, loss_function, n, mode, compute_al
     norms = []
 
     for i, batch in enumerate(tqdm(trainloader)):
+        if reset and i == 0:
+            #print(state.params)
+            state = replace (state, params= interpolate_B_with_kernel(state.params, lam, p, key))
+            #print(state.params)
+            #state_reset = replace(state_reset, params = fa_to_reset(state.params))
+            #train_state = state_reset
+        #else:
+        #    train_state = state
         inputs, labels = prep_batch(batch)
 
         if i < n and compute_alignments:
             if mode != "bp":
-                grads_ = compute_bp_grads(state, state_bp, inputs, labels, loss_function)
+                grads_ = compute_bp_grads(state, state_bp, inputs, labels, loss_function)#train_state, state_bp, inputs, labels, loss_function)
         # parallel_train_step = jax.vmap(train_step, in_axes=(None,0,0, None))
         # state, loss, grads = parallel_train_step(state, inputs, labels, loss_function)
-        state, loss, grads = train_step(state, inputs, labels, loss_function)
+        state, loss, grads = train_step(state, inputs, labels, loss_function)#train_state, inputs, labels, loss_function)
+        #if reset and i == 0:
+        #    state = replace(state, params=reset_to_fa(train_state.params))
+        #else:
+        #    state = train_state
         batch_losses.append(loss)
 
         if i < n and compute_alignments:
@@ -175,6 +190,43 @@ def train_epoch(state, state_bp, trainloader, loss_function, n, mode, compute_al
     else:
         return state, jnp.mean(jnp.array(batch_losses)), 0, 0, 0, 0, 0, 0, 0, 0
 
+def interpolate_B_with_kernel(d, lam, p, key):
+    """Replace 'B' with 'kernel' in each 'RandomDenseLinearFA_i' layer."""
+    new_dict = {}
+    for layer, subdict in d.items():
+        key_1, key = jax.random.split(key, num=2)
+        mask = jax.random.choice(key_1, jnp.array([0,1]), jnp.shape(subdict['Dense_0']['kernel']), p = jnp.array([1-p,p]))
+        if layer.startswith('RandomDenseLinearFA_'):
+            new_subdict = {key: (lam * value + (1-lam)* jnp.multiply(mask,subdict['Dense_0']['kernel']) if key == 'B' else value) 
+                           for key, value in subdict.items()}
+            new_dict[layer] = new_subdict
+        else:
+            new_dict[layer] = subdict
+    return new_dict
+
+def reset_to_fa(d):
+    """Replace keys in the dictionary."""
+    new_dict = {}
+    for key, value in d.items():
+        # Check if the key starts with 'ResetLayer_' and replace it
+        if key.startswith('ResetLayer_'):
+            new_key = 'RandomDenseLinearFA_' + key[len('ResetLayer_'):]
+            new_dict[new_key] = value
+        else:
+            new_dict[key] = value
+    return new_dict
+
+def fa_to_reset(d):
+    """Revert keys in the dictionary from 'RandomDenseLinearFA_i' to 'ResetLayer_i'."""
+    new_dict = {}
+    for key, value in d.items():
+        # Check if the key starts with 'RandomDenseLinearFA_' and replace it
+        if key.startswith('RandomDenseLinearFA_'):
+            new_key = 'ResetLayer_' + key[len('RandomDenseLinearFA_'):]
+            new_dict[new_key] = value
+        else:
+            new_dict[key] = value
+    return new_dict
 
 @partial(jax.jit, static_argnums=(3))
 def train_step(state, inputs, labels, loss_function):
@@ -239,7 +291,7 @@ def prep_batch(batch):
     """
     inputs, labels = batch
     inputs = jnp.array(inputs.numpy()).astype(float)
-    labels = jnp.array(labels.numpy())
+    labels = jnp.array(labels)
     return inputs, labels
 
 
