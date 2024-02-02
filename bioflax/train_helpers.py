@@ -63,13 +63,13 @@ def create_train_state(model, rng, lr, momentum, weight_decay, in_dim, batch_siz
 def compute_bp_grads(state, state_bp, inputs, labels, loss_function):
 
     def loss_comp(params):
-                    logits = state_bp.apply_fn({"params": params}, inputs)
-                    loss = get_loss(loss_function, logits, labels)
-                    return loss
-    
+        logits = state_bp.apply_fn({"params": params}, inputs)
+        loss = get_loss(loss_function, logits, labels)
+        return loss
+
     _, grads_ = jax.value_and_grad(loss_comp)(
-                        reorganize_dict({"params": state.params})["params"]
-                    )
+        reorganize_dict({"params": state.params})["params"]
+    )
     return grads_
 
 
@@ -112,7 +112,8 @@ def train_epoch(state, state_bp, trainloader, loss_function, n, mode, compute_al
 
         if i < n and compute_alignments:
             if mode != "bp":
-                grads_ = compute_bp_grads(state, state_bp, inputs, labels, loss_function)
+                grads_ = compute_bp_grads(
+                    state, state_bp, inputs, labels, loss_function)
         # parallel_train_step = jax.vmap(train_step, in_axes=(None,0,0, None))
         # state, loss, grads = parallel_train_step(state, inputs, labels, loss_function)
         state, loss, grads = train_step(state, inputs, labels, loss_function)
@@ -443,3 +444,21 @@ def uniform_init(a, b):
     def init_func(rng, shape, dtype=jnp.float32):
         return jax.random.uniform(rng, shape, dtype, minval=a, maxval=b)
     return init_func
+
+
+def flattened_traversal(fn):
+    """Returns function that is called with `(path, param)` instead of pytree."""
+    def mask(tree):
+        flat = flax.traverse_util.flatten_dict(tree)
+        return flax.traverse_util.unflatten_dict(
+            {k: fn(k, v) for k, v in flat.items()})
+    return mask
+
+
+def update_freezing(state, model, unfreeze_layer, lr, momentum):
+    label_fn = flattened_traversal(
+        lambda path, _: 'sgd' if path[0] == unfreeze_layer else 'none'
+    )
+    tx = optax.multi_transform({'sgd': optax.sgd(
+        learning_rate=lr, momentum=momentum), 'none': optax.set_to_zero()}, label_fn)
+    return train_state.TrainState.create(apply_fn=model.apply, params=state.params, tx=tx)

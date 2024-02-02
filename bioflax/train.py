@@ -4,7 +4,8 @@ from jax import random
 from jax import config
 from typing import Any
 from .model import BatchBioNeuralNetwork, BioNeuralNetwork
-from .train_helpers import create_train_state, train_epoch, validate, plot_sample, select_initializer
+from flax.training import train_state
+from .train_helpers import create_train_state, train_epoch, validate, plot_sample, select_initializer, update_freezing
 from .dataloading import create_dataset
 
 
@@ -62,7 +63,7 @@ def train(args):
 
     if dataset == "sinreg":
         output_features = 1
-    
+
     if use_wandb:
         # Make wandb config dictionary
         wandb.init(
@@ -123,7 +124,7 @@ def train(args):
         args.activations = activations
     """
 
-    #upon testing architecture.yml uncomment this
+    # upon testing architecture.yml uncomment this
     if architecture == 1:
         hidden_layers = [1000]
         args.hidden_layers = hidden_layers
@@ -147,12 +148,12 @@ def train(args):
     elif architecture == 5:
         hidden_layers = [500, 500]
         args.hidden_layers = hidden_layers
-        activations = ['relu', 'relu'] #standard is relu
+        activations = ['relu', 'relu']  # standard is relu
         args.activations = activations
     elif architecture == 6:
         hidden_layers = [500, 500]
         args.hidden_layers = hidden_layers
-        activations = ['sigmoid', 'sigmoid'] #standard is relu
+        activations = ['sigmoid', 'sigmoid']  # standard is relu
         args.activations = activations
 
     # Set seed for randomness
@@ -269,12 +270,24 @@ def train(args):
         seq_len=seq_len,
         optimizer=optimizer
     )
-
+    print(state.params)
     # Training loop over epochs
     best_loss, best_acc, best_epoch = 100000000, - \
         100000000.0, 0  # This best loss is val_loss
     for i, epoch in enumerate(range(epochs)):  # (args.epochs):
-        #print(f"[*] Starting training epoch {epoch + 1}...")
+        # print(f"[*] Starting training epoch {epoch + 1}...")
+        if i == 0:
+            unfreeze_layer = 'RandomDenseLinearFA_2'
+            state = update_freezing(state, model, unfreeze_layer, lr, momentum)
+        elif i == 50:
+            unfreeze_layer = 'RandomDenseLinearFA_1'
+            state = update_freezing(state, model, unfreeze_layer, lr, momentum)
+        elif i == 100:
+            unfreeze_layer = 'RandomDenseLinearFA_0'
+            state = update_freezing(state, model, unfreeze_layer, lr, momentum)
+        elif i == 150:
+            state = train_state.TrainState(
+                apply_fn=model.apply, params=state.params, tx=optax.sgd(learning_rate=lr, momentum=momentum))
 
         # print(state.step)
         # lr_ = scheduler(state.step)
@@ -297,41 +310,41 @@ def train(args):
         cos_squared = avg_wandb_grad_al_total*avg_wandb_grad_al_total
 
         if valloader is not None:
-            #print(f"[*] Running Epoch {epoch + 1} Validation...")
+            # print(f"[*] Running Epoch {epoch + 1} Validation...")
             val_loss, val_acc = validate(
                 state, valloader, seq_len, in_dim, loss_fn)
 
-            #print(f"[*] Running Epoch {epoch + 1} Test...")
+            # print(f"[*] Running Epoch {epoch + 1} Test...")
             test_loss, test_acc = validate(
                 state, testloader, seq_len, in_dim, loss_fn)
 
-            #print(f"\n=>> Epoch {epoch + 1} Metrics ===")
-            #print(
+            # print(f"\n=>> Epoch {epoch + 1} Metrics ===")
+            # print(
             #    f"\tTrain Loss: {train_loss:.5f} "
             #   f"-- Val Loss: {val_loss:.5f} "
             #    f"-- avg_conv_rate: {avg_conv_rate:.5f} "
             #    f"-- Test Loss: {test_loss:.5f}"
-            #)
-            #if task == "classification":
+            # )
+            # if task == "classification":
             #    print(
             #        f"\tVal Accuracy: {val_acc:.4f} " f"-- Test Accuracy: {test_acc:.4f} ")
         else:
             # Use test set as validation set
-            #print(f"[*] Running Epoch {epoch + 1} Test...")
+            # print(f"[*] Running Epoch {epoch + 1} Test...")
             val_loss, val_acc = validate(
                 state, testloader, seq_len, in_dim, loss_fn)
 
-            #print(f"\n=>> Epoch {epoch + 1} Metrics ===")
-            #print(
+            # print(f"\n=>> Epoch {epoch + 1} Metrics ===")
+            # print(
             #    f"\tTrain loss: {train_loss:.5f}" f"-- Test loss: {val_loss:.5f}")
-            #if task == "classification":
+            # if task == "classification":
             #   print(f"-- Test accuracy: {val_acc:.4f}\n")
 
-        #if compute_alignments:
-            #print(
+        # if compute_alignments:
+            # print(
             #    f"\tRelative norm gradients: {avg_rel_norm_grads:.4f} "
             #    f"-- Gradient alignment: {avg_wandb_grad_al_total:.4f}"
-            #)
+            # )
 
         if val_acc > best_acc:
             # Increment counters etc.
@@ -342,12 +355,12 @@ def train(args):
                 best_test_loss, best_test_acc = best_loss, best_acc
 
         # Print best accuracy & loss so far...
-        #if task == "regression":
+        # if task == "regression":
         #    print(
         #        f"\tBest val loss: {best_loss:.5f} at epoch {best_epoch + 1}\n"
         #       f"\tBest test loss: {best_test_loss:.5f} at epoch {best_epoch + 1}\n"
         #    )
-        #elif task == "classification":
+        # elif task == "classification":
         #    print(
         #        f"\tBest val loss: {best_loss:.5f} -- Best val accuracy:"
         #        f" {best_acc:.4f} at epoch {best_epoch + 1}\n"
