@@ -77,7 +77,8 @@ if __name__ == "__main__":
         "--mode",
         type=str,
         default="fa",
-        choices=["bp", "fa", "kp", "dfa", "interpolate_fa_bp", "interpolate_fa_bp_start"],
+        choices=["bp", "fa", "kp", "dfa",
+                 "interpolate_fa_bp", "interpolate_fa_bp_start"],
         help="Training mode. Choices: ['bp', 'fa', 'kp', 'dfa', 'interpolate_fa_bp]. Type: str, Default: 'fa'",
     )
     parser.add_argument(
@@ -179,6 +180,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--tune_for_lr", type=str2bool, default=False, help="should lr be tuned for setting"
     )
+
+    parser.add_argument("--frozen_training", type=str2bool,
+                        default=False, help="should the training be frozen")
+
+    parser.add_argument("--order", type=str, default="input_to_output", choices=[
+                        "input_to_output", "output_to_input"], help="order of the layers in the network")
 
     args = parser.parse_args()
 
