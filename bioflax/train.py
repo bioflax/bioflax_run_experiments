@@ -303,7 +303,7 @@ def train(args):
 
 
     reset = False
-    mode = start_mode
+    mode_curr = start_mode
     # Training loop over epochs
     best_loss, best_acc, best_epoch = 100000000, - \
         100000000.0, 0  # This best loss is val_loss
@@ -313,9 +313,9 @@ def train(args):
         # print(state.step)
         # lr_ = scheduler(state.step)
         if i == switch_epoch:
-            mode = end_mode
+            mode_curr = end_mode
 
-        if mode == 'bp':
+        if mode_curr == 'bp':
             reset = True
         else: 
             reset = False
