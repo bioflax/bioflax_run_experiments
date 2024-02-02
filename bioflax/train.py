@@ -147,7 +147,12 @@ def train(args):
     elif architecture == 5:
         hidden_layers = [500, 500]
         args.hidden_layers = hidden_layers
-        activations = ['relu', 'relu']
+        activations = ['relu', 'relu'] #standard is relu
+        args.activations = activations
+    elif architecture == 6:
+        hidden_layers = [500, 500]
+        args.hidden_layers = hidden_layers
+        activations = ['sigmoid', 'sigmoid'] #standard is relu
         args.activations = activations
 
     # Set seed for randomness
