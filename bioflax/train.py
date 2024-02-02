@@ -12,6 +12,10 @@ def train(args):
     """
     Main function for training and eveluating a biomodel. Training and evaluation set up by
     arguments passed in args.
+
+    Periodic Resetting allows to periodically reset the weights weights on the backward path to the current weights on the forward path. Do so by setting 
+    periodically to true and specifying the period value. The argument probability (later in code p) allows to control the probability of a specific weight b
+    being reset where the probability is input to a bernoulli distribution for each matrix element. 
     """
     config.update("jax_enable_x64", True)
 
