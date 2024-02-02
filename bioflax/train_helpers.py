@@ -63,13 +63,13 @@ def create_train_state(model, rng, lr, momentum, weight_decay, in_dim, batch_siz
 def compute_bp_grads(state, state_bp, inputs, labels, loss_function):
 
     def loss_comp(params):
-                    logits = state_bp.apply_fn({"params": params}, inputs)
-                    loss = get_loss(loss_function, logits, labels)
-                    return loss
-    
+        logits = state_bp.apply_fn({"params": params}, inputs)
+        loss = get_loss(loss_function, logits, labels)
+        return loss
+
     _, grads_ = jax.value_and_grad(loss_comp)(
-                        reorganize_dict({"params": state.params})["params"]
-                    )
+        reorganize_dict({"params": state.params})["params"]
+    )
     return grads_
 
 
@@ -112,7 +112,8 @@ def train_epoch(state, state_bp, trainloader, loss_function, n, mode, compute_al
 
         if i < n and compute_alignments:
             if mode != "bp":
-                grads_ = compute_bp_grads(state, state_bp, inputs, labels, loss_function)
+                grads_ = compute_bp_grads(
+                    state, state_bp, inputs, labels, loss_function)
         # parallel_train_step = jax.vmap(train_step, in_axes=(None,0,0, None))
         # state, loss, grads = parallel_train_step(state, inputs, labels, loss_function)
         state, loss, grads = train_step(state, inputs, labels, loss_function)
