@@ -111,7 +111,7 @@ def train_epoch(state, state_bp, trainloader,
     norms = []
 
     for i, batch in enumerate(tqdm(trainloader)):
-        if reset and i == 0:
+        if reset:
             #print(state.params)
             state = replace (state, params= interpolate_B_with_kernel(state.params, lam, p, key))
             #print(state.params)

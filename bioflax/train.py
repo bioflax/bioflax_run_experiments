@@ -16,6 +16,7 @@ def train(args):
     Periodic Resetting allows to periodically reset the weights weights on the backward path to the current weights on the forward path. Do so by setting 
     periodically to true and specifying the period value. The argument probability (later in code p) allows to control the probability of a specific weight b
     being reset where the probability is input to a bernoulli distribution for each matrix element. 
+    Works as follows: You just need to control the reset value in the train epoch. As long as it is set to true the entire epoch is trained in BP else it is trained in FA
     """
     config.update("jax_enable_x64", True)
 
@@ -52,9 +53,10 @@ def train(args):
     lam = args.lam
     architecture = args.architecture
     tune_for_lr = args.tune_for_lr
-    period = args.period
     p = args.probability
-    periodically = args.periodically
+    start_mode = args.start_mode
+    end_mode = args.end_mode
+    switch_epoch = args.switch_epoch
 
     if mode == 'bp':
         compute_alignments = False
@@ -301,6 +303,7 @@ def train(args):
 
 
     reset = False
+    mode = start_mode
     # Training loop over epochs
     best_loss, best_acc, best_epoch = 100000000, - \
         100000000.0, 0  # This best loss is val_loss
@@ -309,15 +312,13 @@ def train(args):
         key_mask, key = random.split(key, num=2)
         # print(state.step)
         # lr_ = scheduler(state.step)
-        if(period == -1): #-1 is FA pure (in frist periodic run it was 0)
+        if i == switch_epoch:
+            mode = end_mode
+
+        if mode == 'bp':
+            reset = True
+        else: 
             reset = False
-        else:
-            if(periodically and i % period == 0):
-                reset = True
-            elif( (not periodically) and i == period-1):
-                reset = True
-            else:
-                reset = False
         (
             state,
             train_loss,
