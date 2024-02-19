@@ -185,7 +185,7 @@ if __name__ == "__main__":
                         default=False, help="should the training be frozen")
 
     parser.add_argument("--order", type=str, default="input_to_output", choices=[
-                        "input_to_output", "output_to_input"], help="order of the layers in the network")
+                        "input_to_output", "output_to_input", "None"], help="order of the layers in the network")
 
     args = parser.parse_args()
 
