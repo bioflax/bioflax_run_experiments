@@ -141,7 +141,7 @@ def train_epoch(state, state_bp, trainloader, loss_function, n, mode, compute_al
         if i > 0:
             curr_rate = batch_losses[-1]/batch_losses[-2]
             conv_rates.append(curr_rate)
-
+    print(len(batch_losses))
     if compute_alignments:
         (
             avg_bias_al_per_layer,

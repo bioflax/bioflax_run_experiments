@@ -159,6 +159,7 @@ def train(args):
     print("[*] Setting Randomness...")
     key = random.PRNGKey(seed)
     key_data, key_model, key_model_bp = random.split(key, num=3)
+    print(key_data[0].item())
 
     # Create dataset
     (
@@ -275,7 +276,7 @@ def train(args):
         100000000.0, 0  # This best loss is val_loss
     for i, epoch in enumerate(range(epochs)):  # (args.epochs):
         #print(f"[*] Starting training epoch {epoch + 1}...")
-
+        print(i)
         # print(state.step)
         # lr_ = scheduler(state.step)
         (
@@ -305,13 +306,13 @@ def train(args):
             test_loss, test_acc = validate(
                 state, testloader, seq_len, in_dim, loss_fn)
 
-            #print(f"\n=>> Epoch {epoch + 1} Metrics ===")
-            #print(
-            #    f"\tTrain Loss: {train_loss:.5f} "
-            #   f"-- Val Loss: {val_loss:.5f} "
-            #    f"-- avg_conv_rate: {avg_conv_rate:.5f} "
-            #    f"-- Test Loss: {test_loss:.5f}"
-            #)
+            print(f"\n=>> Epoch {epoch + 1} Metrics ===")
+            print(
+               f"\tTrain Loss: {train_loss:.5f} "
+              f"-- Val Loss: {val_loss:.5f} "
+               f"-- avg_conv_rate: {avg_conv_rate:.5f} "
+               f"-- Test Loss: {test_loss:.5f}"
+            )
             #if task == "classification":
             #    print(
             #        f"\tVal Accuracy: {val_acc:.4f} " f"-- Test Accuracy: {test_acc:.4f} ")
