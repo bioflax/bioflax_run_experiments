@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import torch
 import numpy as np
 import flax.linen as nn
+import wandb
 import flax
 import jax.tree_util as jax_tree
 from typing import Any
@@ -16,7 +17,7 @@ from .metric_computation import compute_metrics, summarize_metrics_epoch, reorga
 from dataclasses import replace
 
 
-def create_train_state(model, rng, lr, momentum, weight_decay, in_dim, batch_size, seq_len, optimizer):
+def create_train_state(model, rng, lr, momentum, weight_decay, in_dim, batch_size, seq_len, optimizer, epochs, steps_per_epoch):
     """
     Initializes the training state using optax
     ...
@@ -39,6 +40,7 @@ def create_train_state(model, rng, lr, momentum, weight_decay, in_dim, batch_siz
     """
     dummy_input = jnp.ones((batch_size, in_dim, seq_len))
     params = model.init(rng, dummy_input)["params"]
+    cosine_fn = optax.cosine_decay_schedule(init_value=lr, decay_steps=epochs * steps_per_epoch)
     sgd_optimizer = optax.sgd(learning_rate=lr, momentum=momentum)
     adam = optax.adam(learning_rate=lr)
     if (optimizer == 'sgd'):
@@ -74,9 +76,7 @@ def compute_bp_grads(state, state_bp, inputs, labels, loss_function):
     return grads_
 
 
-def train_epoch(state, state_bp, trainloader, 
-                loss_function, n, mode, compute_alignments, lam, reset, p, key): 
-                #state_reset, trainloader,loss_function, n, mode, compute_alignments, lam, reset):
+def train_epoch(state, state_bp, trainloader, loss_function, n, mode, compute_alignments, lam, reset, p, key_mask, use_wandb, prev_loss):
     """
     Training function for an epoch that loops over batches.
     ...
@@ -111,29 +111,18 @@ def train_epoch(state, state_bp, trainloader,
     norms = []
 
     for i, batch in enumerate(tqdm(trainloader)):
-        if reset and i == 0:
-            #print(state.params)
-            state = replace (state, params= interpolate_B_with_kernel(state.params, lam, p, key))
-            #print(state.params)
-            #state_reset = replace(state_reset, params = fa_to_reset(state.params))
-            #train_state = state_reset
-        #else:
-        #    train_state = state
         inputs, labels = prep_batch(batch)
 
-        if i < n and compute_alignments:
+        if compute_alignments:
             if mode != "bp":
-                grads_ = compute_bp_grads(state, state_bp, inputs, labels, loss_function)#train_state, state_bp, inputs, labels, loss_function)
+                grads_ = compute_bp_grads(
+                    state, state_bp, inputs, labels, loss_function)
         # parallel_train_step = jax.vmap(train_step, in_axes=(None,0,0, None))
         # state, loss, grads = parallel_train_step(state, inputs, labels, loss_function)
-        state, loss, grads = train_step(state, inputs, labels, loss_function)#train_state, inputs, labels, loss_function)
-        #if reset and i == 0:
-        #    state = replace(state, params=reset_to_fa(train_state.params))
-        #else:
-        #    state = train_state
+        state, loss, grads = train_step(state, inputs, labels, loss_function)
         batch_losses.append(loss)
-
-        if i < n and compute_alignments:
+        
+        if compute_alignments:
             (
                 bias_al_per_layer,
                 wandb_grad_al_per_layer,
@@ -143,7 +132,6 @@ def train_epoch(state, state_bp, trainloader,
                 norm_,
                 norm
             ) = compute_metrics(state, grads_, grads, mode, lam)
-
             bias_als_per_layer.append(bias_al_per_layer)
             wandb_grad_als_per_layer.append(wandb_grad_al_per_layer)
             wandb_grad_als_total.append(wandb_grad_al_total)
@@ -152,10 +140,31 @@ def train_epoch(state, state_bp, trainloader,
             norms_.append(norm_)
             norms.append(norm)
 
+        if i == 0:
+            curr_rate=batch_losses[-1]/prev_loss
         if i > 0:
             curr_rate = batch_losses[-1]/batch_losses[-2]
             conv_rates.append(curr_rate)
-
+        neg_rate = 1-curr_rate
+        metrics={
+            "Training loss": loss,
+            "Conv_Rate": curr_rate,
+            "1-Conv_Rate": neg_rate,
+            "Rel_norm_grads": rel_norm_grads,
+            "Gradient alignment": wandb_grad_al_total,
+            "Norm true gradient": norm,
+            "Norm est. gradient": norm_,
+        }
+        for i, al in enumerate(bias_al_per_layer):
+                metrics[f"Alignment bias gradient layer {i}"] = al
+        for i, al in enumerate(wandb_grad_al_per_layer):
+            metrics[f"Alignment gradient layer {i}"] = al
+        if mode == "fa" or mode == "kp" or mode == "interpolate_fa_bp":
+            for i, al in enumerate(weight_al_per_layer):
+                metrics[f"Alignment layer {i}"] = al
+        if use_wandb: 
+            wandb.log(metrics)
+    print(len(batch_losses))
     if compute_alignments:
         (
             avg_bias_al_per_layer,
@@ -177,7 +186,7 @@ def train_epoch(state, state_bp, trainloader,
         )
         return (
             state,
-            jnp.mean(jnp.array(batch_losses)),
+            batch_losses[-1],#jnp.mean(jnp.array(batch_losses)),
             avg_bias_al_per_layer,
             avg_wandb_grad_al_per_layer,
             avg_wandb_grad_al_total,

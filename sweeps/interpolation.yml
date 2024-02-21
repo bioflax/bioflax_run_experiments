@@ -4,10 +4,13 @@ parameters:
   lr:
     values:
       - 0.0316
+  weight_decay:
+    values:
+      - 0.0
   optimizer:
     value: 'sgd'
   batch_size:
-    value: 128
+    value: 1024
   tune_for_lr:
     value: False
   mode:
@@ -16,7 +19,7 @@ parameters:
     values:
       - 2
   epochs:
-    value: 750
+    value: 200
   wandb_project:
     value: 'weight_init'
   initializer:
@@ -39,4 +42,8 @@ parameters:
   jax_seed:
     values:
       - 10
+      - 20
+      - 30
+      - 40
+      - 50
 

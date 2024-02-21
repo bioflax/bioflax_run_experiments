@@ -272,7 +272,9 @@ def train(args):
         in_dim=in_dim,
         batch_size=batch_size,
         seq_len=seq_len,
-        optimizer=optimizer
+        optimizer=optimizer,
+        epochs=epochs,
+        steps_per_epoch=train_size,
     )
 
     state_bp = create_train_state(
@@ -284,9 +286,11 @@ def train(args):
         in_dim=in_dim,
         batch_size=batch_size,
         seq_len=seq_len,
-        optimizer=optimizer
+        optimizer=optimizer,
+        epochs=epochs,
+        steps_per_epoch=train_size,
     )
-
+    print(train_size)
     #state_reset = create_train_state(
     #    model=reset_model,
     #    rng=key_model_reset,
@@ -304,6 +308,7 @@ def train(args):
     # Training loop over epochs
     best_loss, best_acc, best_epoch = 100000000, - \
         100000000.0, 0  # This best loss is val_loss
+    prev_loss=2.
     for i, epoch in enumerate(range(epochs)):  # (args.epochs):
         #print(f"[*] Starting training epoch {epoch + 1}...")
         key_mask, key = random.split(key, num=2)
@@ -330,7 +335,7 @@ def train(args):
             avg_norm_,
             avg_norm
         ) = train_epoch(state, state_bp, trainloader, 
-                        loss_fn, n, mode, compute_alignments, lam, reset, p, key_mask)
+                        loss_fn, n, mode, compute_alignments, lam, reset, p, key_mask, use_wandb, prev_loss)
                         #, state_reset, trainloader, loss_fn, n, mode, compute_alignments, lam, reset)
         if (i > 0):
             avg_conv_rate = train_loss/prev_loss
@@ -397,11 +402,11 @@ def train(args):
         #        f" {best_test_acc:.4f} at epoch {best_epoch + 1}\n"
         #    )
 
-        metrics = {
-            "Training loss": train_loss,
-            "Val loss": val_loss,
-            # "lr" : lr_
-        }
+        metrics = {}
+        #     "Training loss": train_loss,
+        #     "Val loss": val_loss,
+        #     # "lr" : lr_
+        # }
 
         if task == "classification":
             metrics["Val accuracy"]: val_acc
@@ -410,25 +415,25 @@ def train(args):
             if task == "classification":
                 metrics["Test accuracy"] = test_acc
 
-        if compute_alignments:
-            metrics["lambda"] = lam
-            metrics["Relative norms gradients"] = avg_rel_norm_grads
-            metrics["Gradient alignment"] = avg_wandb_grad_al_total
-            metrics["Convergence metric"] = convergence_metric
-            metrics["Cos_Squared"] = cos_squared
-            metrics["Conv_Rate"] = avg_conv_rate
-            metrics["1-Conv_Rate"] = 1. - avg_conv_rate
-            metrics["Norm true gradient"] = avg_norm
-            metrics["Norm of est. gradient"] = avg_norm_
-            metrics["Approx const. mu/l"] = (1.-avg_conv_rate)/cos_squared
-            metrics["lr_final"] = lr
-            for i, al in enumerate(avg_bias_al_per_layer):
-                metrics[f"Alignment bias gradient layer {i}"] = al
-            for i, al in enumerate(avg_wandb_grad_al_per_layer):
-                metrics[f"Alignment gradient layer {i}"] = al
-            if mode == "fa" or mode == "kp" or mode == "interpolate_fa_bp":
-                for i, al in enumerate(avg_weight_al_per_layer):
-                    metrics[f"Alignment layer {i}"] = al
+        # if compute_alignments:
+        #     metrics["lambda"] = lam
+        #     metrics["Relative norms gradients"] = avg_rel_norm_grads
+        #     metrics["Gradient alignment"] = avg_wandb_grad_al_total
+        #     #metrics["Convergence metric"] = convergence_metric
+        #     metrics["Cos_Squared"] = cos_squared
+        #     #metrics["Conv_Rate"] = avg_conv_rate
+        #     #metrics["1-Conv_Rate"] = 1. - avg_conv_rate
+        #     metrics["Norm true gradient"] = avg_norm
+        #     metrics["Norm of est. gradient"] = avg_norm_
+        #     #metrics["Approx const. mu/l"] = (1.-avg_conv_rate)/cos_squared
+        #     metrics["lr_final"] = lr
+        #     for i, al in enumerate(avg_bias_al_per_layer):
+        #         metrics[f"Alignment bias gradient layer {i}"] = al
+        #     for i, al in enumerate(avg_wandb_grad_al_per_layer):
+        #         metrics[f"Alignment gradient layer {i}"] = al
+        #     if mode == "fa" or mode == "kp" or mode == "interpolate_fa_bp":
+        #         for i, al in enumerate(avg_weight_al_per_layer):
+        #             metrics[f"Alignment layer {i}"] = al
 
         if use_wandb:
             wandb.log(metrics)
