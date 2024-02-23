@@ -504,3 +504,19 @@ def uniform_init(a, b):
     def init_func(rng, shape, dtype=jnp.float32):
         return jax.random.uniform(rng, shape, dtype, minval=a, maxval=b)
     return init_func
+
+def update_freezing(state, model, unfreeze_layer, lr, momentum):
+    label_fn = flattened_traversal(
+        lambda path, _: 'sgd' if path[0] == unfreeze_layer else 'none'
+    )
+    tx = optax.multi_transform({'sgd': optax.sgd(
+        learning_rate=lr, momentum=momentum), 'none': optax.set_to_zero()}, label_fn)
+    return train_state.TrainState.create(apply_fn=model.apply, params=state.params, tx=tx)
+
+def flattened_traversal(fn):
+    """Returns function that is called with `(path, param)` instead of pytree."""
+    def mask(tree):
+        flat = flax.traverse_util.flatten_dict(tree)
+        return flax.traverse_util.unflatten_dict(
+            {k: fn(k, v) for k, v in flat.items()})
+    return mask

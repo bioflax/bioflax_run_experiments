@@ -291,7 +291,7 @@ def train(args):
         epochs=epochs,
         steps_per_epoch=train_size,
     )
-    print(train_size)
+    #print(train_size)
     #state_reset = create_train_state(
     #    model=reset_model,
     #    rng=key_model_reset,
