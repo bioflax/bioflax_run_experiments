@@ -115,6 +115,7 @@ def compute_weight_alignment(params):
     params : dict
         dictionary of model parameters
     """
+    params = filter_dict(params)
     kernels, _ = jax_tree.tree_flatten(
         flatten_matrices_in_tree(remove_keys(params, ['bias', 'B'])))
     Bs, _ = jax_tree.tree_flatten(flatten_matrices_in_tree(
@@ -311,3 +312,8 @@ def flatten_matrices_in_tree(pytree):
         pytree to flatten matrices in
     """
     return jax_tree.tree_map(flatten_array, pytree)
+
+def filter_dict(input_dict):
+    # Create a new dictionary with only 'RandomDenseLinearFA_0' entry
+    filtered_dict = {'RandomDenseLinearFA_0': input_dict['RandomDenseLinearFA_0']}
+    return filtered_dict

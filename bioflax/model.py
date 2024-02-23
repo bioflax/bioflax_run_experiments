@@ -3,6 +3,7 @@ import jax.numpy as jnp
 from flax import linen as nn
 from flax.core.frozen_dict import freeze, unfreeze
 from typing import Any
+import copy
 
 
 class RandomDenseLinearFA(nn.Module):
@@ -373,6 +374,26 @@ class TeacherNetwork(nn.Module):
         x = nn.Dense(self.features)(x)
         return x
 
+class FreezeNeuralNetwork(nn.Module):
+    features: int = 10
+
+    @nn.compact
+    def __call__(self,x):
+        x = nn.Dense(500)(x)
+        x = nn.relu(x)
+        x = nn.Dense(500)(x)
+        x = nn.relu(x)
+        x = RandomDenseLinearFA(self.features)(x)
+        return x
+
+BatchFreezeNeuralNetwork = nn.vmap(
+    FreezeNeuralNetwork,
+    in_axes=0,
+    out_axes=0,
+    variable_axes={'params': None},
+    split_rngs={'params': False},
+    axis_name='batch',
+)
 
 BatchTeacher = nn.vmap(
     TeacherNetwork,

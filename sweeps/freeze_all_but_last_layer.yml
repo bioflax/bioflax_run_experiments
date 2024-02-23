@@ -1,0 +1,42 @@
+method: grid
+program: run_train.py
+parameters:
+  lr:
+    values:
+      - 0.0316
+  optimizer:
+    value: 'sgd'
+  batch_size:
+    value: 1024
+  tune_for_lr:
+    value: False
+  mode:
+    values: 
+      - 'fa'
+  architecture:
+    values:
+      - 2
+  epochs:
+    value: 200
+  freeze:
+    values:
+      - True
+      - False
+  wandb_project:
+    value: 'weight_init'
+  initializer:
+    value: 'lecun'
+  compute_alignments: 
+    value : True
+  jax_seed:
+    values:
+      -  0
+      - 10
+      - 20
+      - 30
+      - 40
+      - 50
+      - 60
+      - 70
+      - 80
+      - 90

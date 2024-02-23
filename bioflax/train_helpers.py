@@ -15,6 +15,7 @@ from flax.training import train_state
 from functools import partial
 from .metric_computation import compute_metrics, summarize_metrics_epoch, reorganize_dict
 from dataclasses import replace
+import copy
 
 
 def create_train_state(model, rng, lr, momentum, weight_decay, in_dim, batch_size, seq_len, optimizer, epochs, steps_per_epoch):
@@ -71,7 +72,7 @@ def compute_bp_grads(state, state_bp, inputs, labels, loss_function):
                     return loss
     
     _, grads_ = jax.value_and_grad(loss_comp)(
-                        reorganize_dict({"params": state.params})["params"]
+                        transform_dict({"params": state.params})
                     )
     return grads_
 
@@ -444,7 +445,7 @@ def plot_mnist_sample(testloader, state, task):
     _, axs = plt.subplots(5, 5, figsize=(12, 12))
     inputs, _ = test_batch
     inputs = torch.reshape(inputs, (inputs.shape[0], 28, 28, 1))
-    print(inputs.shape)
+    
     for i, ax in enumerate(axs.flatten()):
         ax.imshow(inputs[i, ..., 0], cmap="gray")
         ax.set_title(f"label={pred[i]}")
@@ -504,3 +505,36 @@ def uniform_init(a, b):
     def init_func(rng, shape, dtype=jnp.float32):
         return jax.random.uniform(rng, shape, dtype, minval=a, maxval=b)
     return init_func
+
+def update_freezing(state, model, unfreeze_layer, lr, momentum):
+    label_fn = flattened_traversal(
+        lambda path, _: 'sgd' if path[0] == unfreeze_layer else 'none'
+    )
+    tx = optax.multi_transform({'sgd': optax.sgd(
+        learning_rate=lr, momentum=momentum), 'none': optax.set_to_zero()}, label_fn)
+    return train_state.TrainState.create(apply_fn=model.apply, params=state.params, tx=tx)
+
+def flattened_traversal(fn):
+    """Returns function that is called with `(path, param)` instead of pytree."""
+    def mask(tree):
+        flat = flax.traverse_util.flatten_dict(tree)
+        return flax.traverse_util.unflatten_dict(
+            {k: fn(k, v) for k, v in flat.items()})
+    return mask
+
+
+def transform_dict(input_dict):
+    # Make a deep copy of the input_dict to avoid modifying the original dictionary
+    
+    transformed_dict = copy.deepcopy(input_dict['params'])
+    
+    # Extract Dense_0 from RandomDenseLinearFA_0
+    dense_0_from_random = transformed_dict['RandomDenseLinearFA_0'].pop('Dense_0')
+        
+    # Remove the RandomDenseLinearFA_0 key if it's now empty, otherwise leave as is
+    transformed_dict.pop('RandomDenseLinearFA_0')
+        
+        # Add the Dense_2 key with the previously extracted content
+    transformed_dict['Dense_2'] = dense_0_from_random
+    
+    return transformed_dict

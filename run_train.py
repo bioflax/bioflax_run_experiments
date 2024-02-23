@@ -192,6 +192,10 @@ if __name__ == "__main__":
         "--periodically", type=str2bool, default = False, help="is the period considered as a one time updated or conducted periodically"
     )
 
+    parser.add_argument(
+        "--freeze", type=str2bool, default=False, help="Should first layers be trained"
+    )
+
     args = parser.parse_args()
 
     train(args)

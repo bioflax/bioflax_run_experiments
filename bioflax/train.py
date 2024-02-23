@@ -3,8 +3,8 @@ import optax
 from jax import random
 from jax import config
 from typing import Any
-from .model import BatchBioNeuralNetwork, BioNeuralNetwork
-from .train_helpers import create_train_state, train_epoch, validate, plot_sample, select_initializer
+from .model import BatchBioNeuralNetwork, BatchFreezeNeuralNetwork
+from .train_helpers import create_train_state, train_epoch, validate, plot_sample, select_initializer, update_freezing
 from .dataloading import create_dataset
 
 
@@ -55,7 +55,14 @@ def train(args):
     period = args.period
     p = args.probability
     periodically = args.periodically
+    freeze = args.freeze
 
+    """
+    In this branch two networks can be compared based on the flag "freeze" first half: 
+    both have dimensions 784-500-500-10. The last layer i.e. the 500-10 layer is trained using 
+    Feedback Alignment, the layers 784-500 and 500-500 are trained using BP. The BP trainig only 
+    happens if "False" else only FA training on the last layer happens. 
+    """
     if mode == 'bp':
         compute_alignments = False
 
@@ -194,15 +201,17 @@ def train(args):
     # print(total_steps)
     # scheduler = optax.warmup_cosine_decay_schedule(init_value=lr, peak_value=5*lr, warmup_steps=0.1*total_steps, decay_steps=total_steps)
 
-    model = BatchBioNeuralNetwork(
-        hidden_layers=hidden_layers,
-        activations=activations,
-        interpolation_factor=lam,
-        features=output_features,
-        mode=mode,
-        initializer_kernel=select_initializer(initializer, scale_w),
-        initializer_B=select_initializer(initializer, scale_b),
-    )
+    # model = BatchBioNeuralNetwork(
+    #     hidden_layers=hidden_layers,
+    #     activations=activations,
+    #     interpolation_factor=lam,
+    #     features=output_features,
+    #     mode=mode,
+    #     initializer_kernel=select_initializer(initializer, scale_w),
+    #     initializer_B=select_initializer(initializer, scale_b),
+    # )
+
+    model = BatchFreezeNeuralNetwork()
 
     # Backpropagation model to compute alignments
     bp_model = BatchBioNeuralNetwork(
@@ -290,7 +299,6 @@ def train(args):
         epochs=epochs,
         steps_per_epoch=train_size,
     )
-    print(train_size)
     #state_reset = create_train_state(
     #    model=reset_model,
     #    rng=key_model_reset,
@@ -302,6 +310,10 @@ def train(args):
     #    seq_len=seq_len,
     #    optimizer=optimizer
     #)
+    if freeze:
+        unfreeze_layer = 'RandomDenseLinearFA_0'
+        state = update_freezing(
+                        state, model, unfreeze_layer, lr, momentum)
 
 
     reset = False
