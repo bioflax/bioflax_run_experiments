@@ -55,6 +55,7 @@ def train(args):
     period = args.period
     p = args.probability
     periodically = args.periodically
+    freeze = args.freeze
 
     if mode == 'bp':
         compute_alignments = False
@@ -303,6 +304,8 @@ def train(args):
     #    optimizer=optimizer
     #)
 
+    if freeze:
+        RandomDenseLinearInterpolateFABP_0
 
     reset = False
     # Training loop over epochs
