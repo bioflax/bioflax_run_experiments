@@ -49,7 +49,6 @@ def train(args):
     lam = args.lam
     architecture = args.architecture
     tune_for_lr = args.tune_for_lr
-    frozen_training = args.frozen_training
     order = args.order
 
     if mode == 'bp':
@@ -278,39 +277,38 @@ def train(args):
         100000000.0, 0  # This best loss is val_loss
     for i, epoch in enumerate(range(epochs)):  # (args.epochs):
         # print(f"[*] Starting training epoch {epoch + 1}...")
-        if frozen_training:
-            if order == "input_to_output":
-                if i == 0:
-                    unfreeze_layer = 'RandomDenseLinearFA_0'
-                    state = update_freezing(
-                        state, model, unfreeze_layer, lr, momentum)
-                elif i == 50:
-                    unfreeze_layer = 'RandomDenseLinearFA_1'
-                    state = update_freezing(
-                        state, model, unfreeze_layer, lr, momentum)
-                elif i == 100:
-                    unfreeze_layer = 'RandomDenseLinearFA_2'
-                    state = update_freezing(
-                        state, model, unfreeze_layer, lr, momentum)
-                elif i == 150:
-                    state = train_state.TrainState(
-                        apply_fn=model.apply, params=state.params, tx=optax.sgd(learning_rate=lr, momentum=momentum))
-            elif order == "output_to_input":
-                if i == 0:
-                    unfreeze_layer = 'RandomDenseLinearFA_2'
-                    state = update_freezing(
-                        state, model, unfreeze_layer, lr, momentum)
-                elif i == 50:
-                    unfreeze_layer = 'RandomDenseLinearFA_1'
-                    state = update_freezing(
-                        state, model, unfreeze_layer, lr, momentum)
-                elif i == 100:
-                    unfreeze_layer = 'RandomDenseLinearFA_0'
-                    state = update_freezing(
-                        state, model, unfreeze_layer, lr, momentum)
-                elif i == 150:
-                    state = train_state.TrainState(
-                        apply_fn=model.apply, params=state.params, tx=optax.sgd(learning_rate=lr, momentum=momentum))
+        if order == "input_to_output":
+            if i == 0:
+                unfreeze_layer = 'RandomDenseLinearFA_0'
+                state = update_freezing(
+                    state, model, unfreeze_layer, lr, momentum)
+            elif i == 50:
+                unfreeze_layer = 'RandomDenseLinearFA_1'
+                state = update_freezing(
+                    state, model, unfreeze_layer, lr, momentum)
+            elif i == 100:
+                unfreeze_layer = 'RandomDenseLinearFA_2'
+                state = update_freezing(
+                    state, model, unfreeze_layer, lr, momentum)
+            elif i == 150:
+                state = train_state.TrainState(
+                    apply_fn=model.apply, params=state.params, tx=optax.sgd(learning_rate=lr, momentum=momentum))
+        elif order == "output_to_input":
+            if i == 0:
+                unfreeze_layer = 'RandomDenseLinearFA_2'
+                state = update_freezing(
+                    state, model, unfreeze_layer, lr, momentum)
+            elif i == 50:
+                unfreeze_layer = 'RandomDenseLinearFA_1'
+                state = update_freezing(
+                    state, model, unfreeze_layer, lr, momentum)
+            elif i == 100:
+                unfreeze_layer = 'RandomDenseLinearFA_0'
+                state = update_freezing(
+                    state, model, unfreeze_layer, lr, momentum)
+            elif i == 150:
+                state = train_state.TrainState(
+                    apply_fn=model.apply, params=state.params, tx=optax.sgd(learning_rate=lr, momentum=momentum))
 
         # print(state.step)
         # lr_ = scheduler(state.step)
