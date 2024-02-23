@@ -87,9 +87,9 @@ def train(args):
         activations = ['relu']
         args.activations = activations
     elif architecture == 2:
-        hidden_layers = [50, 50, 50, 50, 50]
+        hidden_layers = [500, 500]
         args.hidden_layers = hidden_layers
-        activations = ['relu', 'relu', 'relu', 'relu', 'relu']
+        activations = ['relu', 'relu']
         args.activations = activations
     elif architecture == 3:
         hidden_layers = [500, 500]
