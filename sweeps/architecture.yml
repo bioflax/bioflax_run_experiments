@@ -5,18 +5,18 @@ parameters:
     values:
       - 0.01
   optimizer:
-    value: 'sgd'
+    value: "sgd"
   batch_size:
     value: 128
   tune_for_lr:
     value: False
   mode:
-    values: 
-      - 'bp'
-      - 'fa'
+    values:
+      - "bp"
+      - "fa"
   architecture:
     values:
-      - 1 
+      - 1
       - 2
       - 3
       - 4
@@ -24,11 +24,11 @@ parameters:
   epochs:
     value: 100
   wandb_project:
-    value: 'weight_init'
+    value: "weight_init"
   initializer:
-    value: 'lecun'
-  compute_alignments: 
-    value : True
+    value: "lecun"
+  compute_alignments:
+    value: True
   jax_seed:
     values:
       - 10
