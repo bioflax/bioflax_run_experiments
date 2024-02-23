@@ -7,22 +7,19 @@ parameters:
   optimizer:
     value: 'sgd'
   batch_size:
-    value: 128
+    value: 1024
   tune_for_lr:
     value: False
   mode:
     values: 
-      - 'bp'
       - 'fa'
   architecture:
     values:
       - 1 
       - 2
       - 3
-      - 4
-      - 5
   epochs:
-    value: 100
+    value: 150
   wandb_project:
     value: 'weight_init'
   initializer:

@@ -86,30 +86,30 @@ def train(args):
         activations = ['relu']
         args.activations = activations
     elif architecture == 2:
-        hidden_layers = [500, 500]
+        hidden_layers = [50, 50, 50, 50, 50]
         args.hidden_layers = hidden_layers
-        activations = ['relu', 'relu']
-        args.activations = activations
-    elif architecture == 6:
-        hidden_layers = [3, 3]
-        args.hidden_layers = hidden_layers
-        activations = ['identity', 'identity']
-        args.activations = activations
-    elif architecture == 4:
-        hidden_layers = [2]
-        args.hidden_layers = hidden_layers
-        activations = ['identity']
-        args.activations = activations
-    elif architecture == 1:
-        hidden_layers = [500, 500]
-        args.hidden_layers = hidden_layers
-        activations = ['sigmoid', 'sigmoid']
+        activations = ['relu', 'relu', 'relu', 'relu', 'relu']
         args.activations = activations
     elif architecture == 3:
         hidden_layers = [500, 500]
         args.hidden_layers = hidden_layers
-        activations = ['leaky_relu', 'leaky_relu']
+        activations = ['relu', 'relu']
         args.activations = activations
+    elif architecture == 1:
+        hidden_layers = [50]
+        args.hidden_layers = hidden_layers
+        activations = ['relu']
+        args.activations = activations
+    # elif architecture == 1:
+    #     hidden_layers = [500, 500]
+    #     args.hidden_layers = hidden_layers
+    #     activations = ['sigmoid', 'sigmoid']
+    #     args.activations = activations
+    # elif architecture == 3:
+    #     hidden_layers = [500, 500]
+    #     args.hidden_layers = hidden_layers
+    #     activations = ['leaky_relu', 'leaky_relu']
+    #     args.activations = activations
     
     """
     #upon testing activations.yml uncomment this
