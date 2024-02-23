@@ -4,7 +4,7 @@ from jax import random
 from jax import config
 from typing import Any
 from .model import BatchBioNeuralNetwork, BioNeuralNetwork
-from .train_helpers import create_train_state, train_epoch, validate, plot_sample, select_initializer
+from .train_helpers import create_train_state, train_epoch, validate, plot_sample, select_initializer, update_freezing
 from .dataloading import create_dataset
 
 
@@ -305,7 +305,11 @@ def train(args):
     #)
 
     if freeze:
-        RandomDenseLinearInterpolateFABP_0
+        unfreeze_layer = 'RandomDenseLinearInterpolateFABP_0'
+        state = update_freezing(
+                        state, model, unfreeze_layer, lr, momentum)
+
+        
 
     reset = False
     # Training loop over epochs
