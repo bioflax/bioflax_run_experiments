@@ -8,11 +8,16 @@ from jax import config
 from tqdm import tqdm
 from typing import Any
 from .metric_computation import compute_metrics
-from .model import BatchBioNeuralNetwork, BatchTeacher, BioNeuralNetwork
+from .model import BatchBioNeuralNetwork, BatchTeacher, BioNeuralNetwork, BatchTwoLayerTeacher, BatchTwoLayerStudent
 from .train_helpers import alignment_step, get_loss, reorganize_dict, random_initialize_grad, prep_batch, create_train_state, train_epoch, train_step, validate, plot_sample, select_initializer
 from .dataloading import create_dataset
 
-
+"""
+    In this branch teacher weights used for data generation are placed on the backward pass of different architectures. args.comb
+    defines how these weights are used. comb=2 is standard BP comb=4 standard FA. comb=1 is BP in the input and first hidden layer
+    in the ouput layer the teachers output layer's weights are used for FA: Similarly, comb=2 uses BP only in input layer (or FA
+    in the input layer there is no difference) and FA with the teacher's weights in the other layers
+"""
 def train(args):
     """
     Main function for training and eveluating a biomodel. Training and evaluation set up by
@@ -55,9 +60,10 @@ def train(args):
     tune_for_lr = args.tune_for_lr
     samples = args.samples
     use_bias = args.use_bias
-    hid_lay_size = args.hid_lay_size
+    hid_lay_size = args.hid_lay_size #controls size of the teacher hidden layers not student
     angle = args.angle
     use_fixed_direction = args.use_fixed_direction
+    comb = args.comb #lambdas to use in the layers
 
     if dataset == "mnist":
         task = "classification"
@@ -71,9 +77,12 @@ def train(args):
         output_features = 1
 
     if architecture == 1:
-        hidden_layers = [1000]
+        hidden_layers = [100, 100]
         args.hidden_layers = hidden_layers
-        activations = ['relu']
+        activations = ['identity', 'identity']
+        hid_lay1 = 100
+        hid_lay2 = 100
+        activation = 'identity'
         args.activations = activations
     elif architecture == 2:
         hidden_layers = [500, 500]
@@ -81,9 +90,12 @@ def train(args):
         activations = ['relu', 'relu']
         args.activations = activations
     elif architecture == 3:
-        hidden_layers = [50, 50]
+        hidden_layers = [100, 100]
         args.hidden_layers = hidden_layers
-        activations = ['identity', 'identity']
+        activations = ['sigmoid', 'sigmoid']
+        hid_lay1 = 100
+        hid_lay2 = 100
+        activation = 'sigmoid'
         args.activations = activations
     elif architecture == 4:
         hidden_layers = [100, 100]
@@ -100,6 +112,19 @@ def train(args):
         args.hidden_layers = hidden_layers
         activations = ['identity', 'identity']
         args.activations = activations
+
+    if comb == 1:
+        lam_1 = 0.0
+        lam_2 = 1.0
+    elif comb == 2:
+        lam_1 = 0.0
+        lam_2 = 0.0
+    elif comb == 3:
+        lam_1 = 1.0
+        lam_2 = 1.0
+    elif comb == 4:
+        lam_1 = 1.0
+        lam_2 = 1.0
 
     if use_wandb:
         # Make wandb config dictionary
@@ -145,12 +170,13 @@ def train(args):
     # print(total_steps)
     # scheduler = optax.warmup_cosine_decay_schedule(init_value=lr, peak_value=5*lr, warmup_steps=0.1*total_steps, decay_steps=total_steps)
 
-    model = BatchBioNeuralNetwork(
-        hidden_layers=hidden_layers,
-        activations=activations,
-        interpolation_factor=lam,
+    model = BatchTwoLayerStudent(
+        hid_lay1=hid_lay1,
+        hid_lay2=hid_lay2,
+        activation=activation,
+        lam_1=lam_1,
+        lam_2=lam_2,
         features=output_features,
-        mode=mode,
         initializer_kernel=select_initializer(initializer, scale_w),
         initializer_B=select_initializer(initializer, scale_b),
         use_bias=use_bias
@@ -231,10 +257,13 @@ def train(args):
 
     jited_compute_metrics = jax.jit(compute_metrics, static_argnums=[3, 4, 5])
 
-    teacher_model = BatchTeacher(
-        features=output_features, activation=teacher_act, hid_lay_size=hid_lay_size)
+    teacher_model = BatchTwoLayerTeacher(
+        features=output_features, activation=teacher_act, hid_lay1=hid_lay1, hid_lay2=hid_lay2)
     teacher_params = teacher_model.init(key_model_teacher, jnp.ones(
         (batch_size, in_dim, seq_len)))['params']
+    if comb != 4:
+        state.params['RandomDenseLinearInterpolateFABP_1']['B'] = teacher_params['Dense_1']['kernel']
+        state.params['RandomDenseLinearInterpolateFABP_2']['B'] = teacher_params['Dense_2']['kernel']
 
     key, key_data = jax.random.split(key, num=2)
     initializer = jax.nn.initializers.normal(1.0)

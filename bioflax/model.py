@@ -210,9 +210,9 @@ class RandomDenseLinearInterpolateFABP(nn.Module):
             return (delta_params, delta_x, jnp.zeros_like(B))
 
         forward_module = nn.Dense(
-            self.features, kernel_init=self.initializer_kernel)
+            self.features, kernel_init=self.initializer_kernel, use_bias=self.use_bias)
         custom_f = nn.custom_vjp(fn=f, forward_fn=fwd,
-                                 backward_fn=bwd, use_bias=self.use_bias)
+                                 backward_fn=bwd)
         return custom_f(forward_module, x, B)
 
 
@@ -331,6 +331,68 @@ class TeacherNetwork(nn.Module):
             x = getattr(nn, self.activation)(x)
         x = nn.Dense(self.features)(x)
         return x
+    
+class TwoLayerTeacher(nn.Module):
+    hid_lay1: int = 30
+    hid_lay2: int = 30
+    features: int = 2
+    activation: str = "sigmoid"
+
+    @nn.compact
+    def __call__(self,x):
+        x = nn.Dense(self.hid_lay1, kernel_init=nn.initializers.normal(
+            0.01), use_bias=False)(x)
+        if self.activation != "identity":
+            x = getattr(nn, self.activation)(x)
+        x = nn.Dense(self.hid_lay2, kernel_init=nn.initializers.normal(
+            0.01), use_bias=False)(x)
+        if self.activation != "identity":
+            x = getattr(nn, self.activation)(x)
+        x = nn.Dense(self.features, kernel_init=nn.initializers.normal(
+            0.01), use_bias=False)(x)
+        return x
+    
+class TwoLayerStudent(nn.Module):
+    hid_lay1: int = 30
+    hid_lay2: int = 30
+    lam_1: float = 0.0
+    lam_2: float = 1.0
+    features: int = 2
+    activation: str = "sigmoid"
+    initializer_kernel: Any = nn.initializers.lecun_normal()
+    initializer_B: Any = nn.initializers.lecun_normal()
+    use_bias: bool = True
+
+    @nn.compact
+    def __call__(self,x):
+        x = RandomDenseLinearInterpolateFABP(self.hid_lay1, 0.0, self.initializer_kernel, self.initializer_B, use_bias=self.use_bias)(x)
+        if self.activation != "identity":
+            x = getattr(nn, self.activation)(x)
+        x = RandomDenseLinearInterpolateFABP(
+                self.hid_lay2, self.lam_1, self.initializer_kernel, self.initializer_B, use_bias=self.use_bias)(x)
+        if self.activation != "identity":
+            x = getattr(nn, self.activation)(x)
+        x = RandomDenseLinearInterpolateFABP(
+                self.features, self.lam_2, self.initializer_kernel, self.initializer_B, use_bias=self.use_bias)(x)
+        return x
+    
+BatchTwoLayerTeacher = nn.vmap(
+    TwoLayerTeacher,
+    in_axes=0,
+    out_axes=0,
+    variable_axes={'params': None},
+    split_rngs={'params': False},
+    axis_name='batch',
+)
+
+BatchTwoLayerStudent = nn.vmap(
+    TwoLayerStudent,
+    in_axes=0,
+    out_axes=0,
+    variable_axes={'params': None},
+    split_rngs={'params': False},
+    axis_name='batch',
+)
 
 
 BatchTeacher = nn.vmap(
@@ -350,3 +412,5 @@ BatchBioNeuralNetwork = nn.vmap(
     split_rngs={'params': False},
     axis_name='batch',
 )
+
+

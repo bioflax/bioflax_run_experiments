@@ -1,0 +1,67 @@
+method: grid
+program: run_train.py
+parameters:
+  dataset:
+    value: "teacher"
+  batch_size:
+    value: 1024
+  train_set_size:
+    value: 0
+  test_set_size:
+    value: 0
+  seq_len:
+    values:
+      - 392
+  output_features:
+    values:
+      - 2
+  teacher_act:
+    value: identity
+  mode:
+    values:
+      - "fa"
+  architecture:
+    values:
+      - 1 #sigmoid 392-100-100-2
+      - 3 #identity 392-100-100-2
+  epochs:
+    value: 1
+  samples:
+    value: 10000
+  lr:
+    values:
+      - 0.0316
+      - 0.1
+      - 0.316
+  comb:
+    values:
+      - 1
+      - 2
+      - 3
+      - 4
+  optimizer:
+    value: "sgd"
+  tune_for_lr:
+    value: False
+  wandb_project:
+    value: "weight_init"
+  compute_alignments:
+    value: True
+  initializer:
+    value: "lecun"
+  use_bias:
+    values:
+      - True
+  angle:
+    values:
+      - -1
+  jax_seed:
+    values:
+      - 0
+      - 10 
+      - 20
+      - 30
+      - 40
+  use_fixed_direction:
+    values:
+      - True

@@ -199,6 +199,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--use_fixed_direction", type=str2bool, default=False, help="fixed gradient misalginment direction"
     )
+
+    parser.add_argument(
+        "--comb", type=int, default=1, help="how to combine lambda in student"
+    )
     args = parser.parse_args()
 
     train(args)
