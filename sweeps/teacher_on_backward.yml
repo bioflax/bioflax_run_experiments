@@ -19,17 +19,18 @@ parameters:
     value: identity
   mode:
     values:
-      - "fa"
+      - "interpolate_fa_bp"
   architecture:
     values:
-      - 1 #sigmoid 392-100-100-2
-      - 3 #identity 392-100-100-2
+      #- 3 #sigmoid 392-100-100-2
+      - 1 #identity 392-100-100-2
   epochs:
     value: 1
   samples:
     value: 10000
   lr:
     values:
+      - 0.01
       - 0.0316
       - 0.1
       - 0.316

@@ -340,16 +340,13 @@ class TwoLayerTeacher(nn.Module):
 
     @nn.compact
     def __call__(self,x):
-        x = nn.Dense(self.hid_lay1, kernel_init=nn.initializers.normal(
-            0.01), use_bias=False)(x)
+        x = nn.Dense(self.hid_lay1, kernel_init=nn.initializers.lecun_normal(), use_bias=False)(x)
         if self.activation != "identity":
             x = getattr(nn, self.activation)(x)
-        x = nn.Dense(self.hid_lay2, kernel_init=nn.initializers.normal(
-            0.01), use_bias=False)(x)
+        x = nn.Dense(self.hid_lay2, kernel_init=nn.initializers.lecun_normal(), use_bias=False)(x)
         if self.activation != "identity":
             x = getattr(nn, self.activation)(x)
-        x = nn.Dense(self.features, kernel_init=nn.initializers.normal(
-            0.01), use_bias=False)(x)
+        x = nn.Dense(self.features, kernel_init=nn.initializers.lecun_normal(), use_bias=False)(x)
         return x
     
 class TwoLayerStudent(nn.Module):

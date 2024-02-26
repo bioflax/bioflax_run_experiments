@@ -13,6 +13,7 @@ from .train_helpers import alignment_step, get_loss, reorganize_dict, random_ini
 from .dataloading import create_dataset
 
 """
+    ONLY WORKS IN INTERPOLATE MODE AND SEPERARATE LAM NEED TO BE SPECIFIED. Metric computation special. Only works for 4 layers of neurons. 
     In this branch teacher weights used for data generation are placed on the backward pass of different architectures. args.comb
     defines how these weights are used. comb=2 is standard BP comb=4 standard FA. comb=1 is BP in the input and first hidden layer
     in the ouput layer the teachers output layer's weights are used for FA: Similarly, comb=2 uses BP only in input layer (or FA
@@ -113,6 +114,7 @@ def train(args):
         activations = ['identity', 'identity']
         args.activations = activations
 
+    lam_0 = 0.0 #for the input layer which essentially doesn't (if changing this value note that it will change the metric computation but not the nets that would need to be adapted separately but again in the net it will not influence results anyway)
     if comb == 1:
         lam_1 = 0.0
         lam_2 = 1.0
@@ -255,13 +257,13 @@ def train(args):
         optimizer=optimizer
     )
 
-    jited_compute_metrics = jax.jit(compute_metrics, static_argnums=[3, 4, 5])
+    jited_compute_metrics = jax.jit(compute_metrics, static_argnums=[3, 4, 5, 6, 7])
 
     teacher_model = BatchTwoLayerTeacher(
         features=output_features, activation=teacher_act, hid_lay1=hid_lay1, hid_lay2=hid_lay2)
     teacher_params = teacher_model.init(key_model_teacher, jnp.ones(
         (batch_size, in_dim, seq_len)))['params']
-    if comb != 4:
+    if comb != 4 and comb != 2:
         state.params['RandomDenseLinearInterpolateFABP_1']['B'] = teacher_params['Dense_1']['kernel']
         state.params['RandomDenseLinearInterpolateFABP_2']['B'] = teacher_params['Dense_2']['kernel']
 
@@ -320,7 +322,9 @@ def train(args):
                     rel_norm_grads,
                     norm_,
                     norm
-                ) = jited_compute_metrics(state, grads_, grads, mode, lam, use_bias)
+                ) = jited_compute_metrics(state, grads_, grads, mode, lam_0, lam_1, lam_2, use_bias)
+                #print(wandb_grad_al_per_layer)
+                
                 if (i > 0):
                     conv_rate = loss/prev_loss
                 prev_loss = loss
