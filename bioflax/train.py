@@ -15,7 +15,7 @@ def train(args):
 
     Periodic Resetting allows to periodically reset the weights weights on the backward path to the current weights on the forward path. Do so by setting 
     periodically to true and specifying the period value. The argument probability (later in code p) allows to control the probability of a specific weight b
-    being reset where the probability is input to a bernoulli distribution for each matrix element. 
+    being reset where the probability is input to a bernoulli distribution for each matrix element. Must be run in FA mode
     """
     config.update("jax_enable_x64", True)
 
@@ -194,6 +194,11 @@ def train(args):
     # print(total_steps)
     # scheduler = optax.warmup_cosine_decay_schedule(init_value=lr, peak_value=5*lr, warmup_steps=0.1*total_steps, decay_steps=total_steps)
 
+    if period == -2:
+        lam = 0.0 # -2 corresponds to running in BP mode
+    else:
+        lam = 1.0 # all other periods correspond to running in FA mode
+    
     model = BatchBioNeuralNetwork(
         hidden_layers=hidden_layers,
         activations=activations,
@@ -309,8 +314,10 @@ def train(args):
         key_mask, key = random.split(key, num=2)
         # print(state.step)
         # lr_ = scheduler(state.step)
-        if(period == -1): #-1 is FA pure (in frist periodic run it was 0)
+        if(period == -1): #-1 is FA pure (in first periodic run it was 0)
             reset = False
+        elif(period == -2):
+            reset = False # -2 is pure BP lam is set to 0 and hence no resetting to forward weights is neccessary
         else:
             if(periodically and i % period == 0):
                 reset = True
