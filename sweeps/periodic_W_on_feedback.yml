@@ -11,7 +11,7 @@ parameters:
   tune_for_lr:
     value: False
   mode:
-    value: 'fa'
+    value: 'interpolate_fa_bp'
   probability:
     value: 1.0
   periodically:
@@ -21,6 +21,8 @@ parameters:
       - 2
   period:
     values:
+      - -2
+      - -1
       - 1
       - 5
       - 10
@@ -37,6 +39,9 @@ parameters:
   compute_alignments: 
     value : True
   lam:
+    values:
+      - 0.0
+  beta:
     values:
       - 0.0
   jax_seed:

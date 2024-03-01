@@ -192,6 +192,10 @@ if __name__ == "__main__":
         "--periodically", type=str2bool, default = False, help="is the period considered as a one time updated or conducted periodically"
     )
 
+    parser.add_argument(
+        "--beta", type=float, default=0.0, help="defines the interpolation for periodic resetting"
+    )
+
     args = parser.parse_args()
 
     train(args)

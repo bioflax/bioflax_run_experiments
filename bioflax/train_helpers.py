@@ -75,7 +75,7 @@ def compute_bp_grads(state, state_bp, inputs, labels, loss_function):
 
 
 def train_epoch(state, state_bp, trainloader, 
-                loss_function, n, mode, compute_alignments, lam, reset, p, key): 
+                loss_function, n, mode, compute_alignments, lam, beta, reset, p, key): 
                 #state_reset, trainloader,loss_function, n, mode, compute_alignments, lam, reset):
     """
     Training function for an epoch that loops over batches.
@@ -113,7 +113,7 @@ def train_epoch(state, state_bp, trainloader,
     for i, batch in enumerate(tqdm(trainloader)):
         if reset and i == 0:
             #print(state.params)
-            state = replace (state, params= interpolate_B_with_kernel(state.params, lam, p, key))
+            state = replace(state, params= interpolate_B_with_kernel(state.params, beta, p, key))
             #print(state.params)
             #state_reset = replace(state_reset, params = fa_to_reset(state.params))
             #train_state = state_reset
@@ -190,14 +190,14 @@ def train_epoch(state, state_bp, trainloader,
     else:
         return state, jnp.mean(jnp.array(batch_losses)), 0, 0, 0, 0, 0, 0, 0, 0
 
-def interpolate_B_with_kernel(d, lam, p, key):
+def interpolate_B_with_kernel(d, beta, p, key):
     """Replace 'B' with 'kernel' in each 'RandomDenseLinearFA_i' layer."""
     new_dict = {}
     for layer, subdict in d.items():
         key_1, key = jax.random.split(key, num=2)
         mask = jax.random.choice(key_1, jnp.array([0,1]), jnp.shape(subdict['Dense_0']['kernel']), p = jnp.array([1-p,p]))
-        if layer.startswith('RandomDenseLinearFA_'):
-            new_subdict = {key: (lam * value + (1-lam)* jnp.multiply(mask,subdict['Dense_0']['kernel']) if key == 'B' else value) 
+        if layer.startswith('RandomDenseLinearInterpolateFABP_'):
+            new_subdict = {key: (beta * value + (1-beta)* jnp.multiply(mask,subdict['Dense_0']['kernel']) if key == 'B' else value) 
                            for key, value in subdict.items()}
             new_dict[layer] = new_subdict
         else:

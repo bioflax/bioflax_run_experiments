@@ -13,9 +13,12 @@ def train(args):
     Main function for training and eveluating a biomodel. Training and evaluation set up by
     arguments passed in args.
 
+    Only works for mode 'interpolate_fa_bp' since the reseting is hardcoded int erms of layer name
     Periodic Resetting allows to periodically reset the weights weights on the backward path to the current weights on the forward path. Do so by setting 
     periodically to true and specifying the period value. The argument probability (later in code p) allows to control the probability of a specific weight b
     being reset where the probability is input to a bernoulli distribution for each matrix element. Must be run in FA mode
+
+    beta 
     """
     config.update("jax_enable_x64", True)
 
@@ -49,12 +52,13 @@ def train(args):
     initializer = args.initializer
     scale_w = args.scale_w
     scale_b = args.scale_b
-    lam = args.lam
+    lam_architecture = args.lam
     architecture = args.architecture
     tune_for_lr = args.tune_for_lr
     period = args.period
     p = args.probability
     periodically = args.periodically
+    beta = args.beta
 
     if mode == 'bp':
         compute_alignments = False
@@ -257,7 +261,7 @@ def train(args):
                     avg_conv_rate,
                     avg_norm_,
                     avg_norm
-                ) = train_epoch(iter_state, bp_model, trainloader, loss_fn, n, mode, False, lam)
+                ) = train_epoch(iter_state, bp_model, trainloader, loss_fn, n, mode, False, beta)
             print(train_loss_)
             if train_loss_ < best_loss_rate:
                 best_loss_rate = train_loss_
@@ -337,7 +341,7 @@ def train(args):
             avg_norm_,
             avg_norm
         ) = train_epoch(state, state_bp, trainloader, 
-                        loss_fn, n, mode, compute_alignments, lam, reset, p, key_mask)
+                        loss_fn, n, mode, compute_alignments, lam, beta, reset, p, key_mask)
                         #, state_reset, trainloader, loss_fn, n, mode, compute_alignments, lam, reset)
         if (i > 0):
             avg_conv_rate = train_loss/prev_loss
