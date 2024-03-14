@@ -18,6 +18,8 @@ def train(args):
     periodically to true and specifying the period value. The argument probability (later in code p) allows to control the probability of a specific weight b
     being reset where the probability is input to a bernoulli distribution for each matrix element. Must be run in FA mode
 
+    Moreover by setting interpolate_from_second_reset one can interpolate between FA and BP from the second periodic reset i.e. all resets excluding the reset at 
+    epoch 0. lam which if this variable is set to False has no eaning then needs to be set correctly.
     beta 
     """
     config.update("jax_enable_x64", True)
