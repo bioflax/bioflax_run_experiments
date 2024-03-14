@@ -52,13 +52,14 @@ def train(args):
     initializer = args.initializer
     scale_w = args.scale_w
     scale_b = args.scale_b
-    lam_architecture = args.lam
+    lam_after_second_reset = args.lam
     architecture = args.architecture
     tune_for_lr = args.tune_for_lr
     period = args.period
     p = args.probability
     periodically = args.periodically
     beta = args.beta
+    interpolate_from_second_reset = args.interpolate_from_second_reset
 
     if mode == 'bp':
         compute_alignments = False
@@ -296,19 +297,6 @@ def train(args):
         optimizer=optimizer
     )
 
-    #state_reset = create_train_state(
-    #    model=reset_model,
-    #    rng=key_model_reset,
-    #    lr=lr,  # scheduler, #relevant change at the moment
-    #    momentum=momentum,
-    #    weight_decay=weight_decay,
-    #    in_dim=in_dim,
-    #    batch_size=batch_size,
-    #    seq_len=seq_len,
-    #    optimizer=optimizer
-    #)
-
-
     reset = False
     # Training loop over epochs
     best_loss, best_acc, best_epoch = 100000000, - \
@@ -325,6 +313,29 @@ def train(args):
         else:
             if(periodically and i % period == 0):
                 reset = True
+                if i != 0 and interpolate_from_second_reset:
+                    lam = lam_after_second_reset
+                    model = BatchBioNeuralNetwork(
+                        hidden_layers=hidden_layers,
+                        activations=activations,
+                        interpolation_factor=lam,
+                        features=output_features,
+                        mode=mode,
+                        initializer_kernel=select_initializer(initializer, scale_w),
+                        initializer_B=select_initializer(initializer, scale_b),
+                    )
+                    state = create_train_state(
+                        model=model,
+                        rng=key_model,
+                        lr=lr,  # scheduler, #relevant change at the moment
+                        momentum=momentum,
+                        weight_decay=weight_decay,
+                        in_dim=in_dim,
+                        batch_size=batch_size,
+                        seq_len=seq_len,
+                        optimizer=optimizer,
+                        params = state.params
+                    )
             elif( (not periodically) and i == period-1):
                 reset = True
             else:

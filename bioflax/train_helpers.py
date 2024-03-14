@@ -16,7 +16,7 @@ from .metric_computation import compute_metrics, summarize_metrics_epoch, reorga
 from dataclasses import replace
 
 
-def create_train_state(model, rng, lr, momentum, weight_decay, in_dim, batch_size, seq_len, optimizer):
+def create_train_state(model, rng, lr, momentum, weight_decay, in_dim, batch_size, seq_len, optimizer, params = None):
     """
     Initializes the training state using optax
     ...
@@ -37,8 +37,9 @@ def create_train_state(model, rng, lr, momentum, weight_decay, in_dim, batch_siz
     seq_len : int
         sequence length used when running model
     """
-    dummy_input = jnp.ones((batch_size, in_dim, seq_len))
-    params = model.init(rng, dummy_input)["params"]
+    if params is None:
+        dummy_input = jnp.ones((batch_size, in_dim, seq_len))
+        params = model.init(rng, dummy_input)["params"]
     sgd_optimizer = optax.sgd(learning_rate=lr, momentum=momentum)
     adam = optax.adam(learning_rate=lr)
     if (optimizer == 'sgd'):

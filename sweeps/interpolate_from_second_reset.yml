@@ -1,0 +1,52 @@
+method: grid
+program: run_train.py
+parameters:
+  lr:
+    values:
+      - 0.0316
+  optimizer:
+    value: 'sgd'
+  batch_size:
+    value: 128
+  tune_for_lr:
+    value: False
+  mode:
+    value: 'interpolate_fa_bp'
+  probability:
+    value: 1.0
+  periodically:
+    value: True
+  architecture:
+    values:
+      - 2
+  period:
+    values:
+      - 100
+  epochs:
+    value: 200
+  wandb_project:
+    value: 'weight_init'
+  initializer:
+    value: 'lecun'
+  compute_alignments: 
+    value : True
+  interpolate_from_second_reset:
+    value : True
+  lam:
+    values:
+      - 0.0
+      - 0.2
+      - 0.4
+      - 0.6
+      - 0.8
+      - 1.0
+  beta:
+    values:
+      - 0.0
+  jax_seed:
+    values:
+      - 0
+      - 10
+      - 20
+      - 30
+      - 40

@@ -1,6 +1,6 @@
-for DEVICE_NUM in 2 3
+for DEVICE_NUM in 0 1
 do
-  CUDA_VISIBLE_DEVICES=$DEVICE_NUM wandb agent bioflax/bioflax_run_experiments/bifjm2h9 &
+  CUDA_VISIBLE_DEVICES=$DEVICE_NUM wandb agent bioflax/bioflax_run_experiments/3jfhzhoe &
   sleep 3
 done
 

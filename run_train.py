@@ -196,6 +196,9 @@ if __name__ == "__main__":
         "--beta", type=float, default=0.0, help="defines the interpolation for periodic resetting"
     )
 
+    parser.add_argument(
+        "--interpolate_from_second_reset", default=False, help="should weight interpolation between forward and feedback path happen from second reset onward?"
+    )
     args = parser.parse_args()
 
     train(args)
