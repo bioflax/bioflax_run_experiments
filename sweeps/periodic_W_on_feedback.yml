@@ -7,7 +7,9 @@ parameters:
   optimizer:
     value: 'sgd'
   batch_size:
-    value: 1024 #TODO: change back to 128 for not tracking every epochs
+    values:
+      - 128
+      - 256 #TODO: change back to 128 for not tracking every epochs
   tune_for_lr:
     value: False
   mode:
@@ -21,10 +23,10 @@ parameters:
       - 2
   period:
     values:
-      - 400
-      - 600
+      - 100
+      - 150
   epochs:
-    value: 800
+    value: 200
   wandb_project:
     value: 'weight_init'
   initializer:
