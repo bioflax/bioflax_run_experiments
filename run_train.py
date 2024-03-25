@@ -180,6 +180,13 @@ if __name__ == "__main__":
         "--tune_for_lr", type=str2bool, default=False, help="should lr be tuned for setting"
     )
 
+    parser.add_argument(
+        "--loss_func", type=str, default = "d_set",choices=['arch', 'rand'], help="arch means using los appropiate for dataset, rand means using a random loss"
+    )
+
+    parser.add_argument(
+        "--eval", type=str2bool, default=True, help="should evaluation be performed?"
+    )
     args = parser.parse_args()
 
     train(args)

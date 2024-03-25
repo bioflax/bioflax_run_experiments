@@ -48,13 +48,18 @@ def train(args):
     lam = args.lam
     architecture = args.architecture
     tune_for_lr = args.tune_for_lr
+    loss_func = args.loss_func
+    eval_ = args.eval
 
     if mode == 'bp':
         compute_alignments = False
 
     if dataset == "mnist":
         task = "classification"
-        loss_fn = "CE"
+        if loss_func == 'arch':
+            loss_fn = "CE"
+        elif loss_func == "rand":
+            loss_fn = "random"
         output_features = 10
     else:
         task = "regression"
@@ -279,6 +284,7 @@ def train(args):
         print(i)
         # print(state.step)
         # lr_ = scheduler(state.step)
+        key, key_curr = random.split(key, num=2)
         (
             state,
             train_loss,
@@ -290,7 +296,7 @@ def train(args):
             avg_conv_rate,
             avg_norm_,
             avg_norm
-        ) = train_epoch(state, state_bp, trainloader, loss_fn, n, mode, compute_alignments, lam)
+        ) = train_epoch(state, state_bp, trainloader, loss_fn, n, mode, compute_alignments, lam, key_curr)
         if (i > 0):
             avg_conv_rate = train_loss/prev_loss
         prev_loss = train_loss
@@ -299,12 +305,20 @@ def train(args):
 
         if valloader is not None:
             #print(f"[*] Running Epoch {epoch + 1} Validation...")
-            val_loss, val_acc = validate(
-                state, valloader, seq_len, in_dim, loss_fn)
+            if eval_:
+                val_loss, val_acc = validate(
+                    state, valloader, seq_len, in_dim, loss_fn)
+            else:
+                val_loss = 0
+                val_acc = 0
 
             #print(f"[*] Running Epoch {epoch + 1} Test...")
-            test_loss, test_acc = validate(
-                state, testloader, seq_len, in_dim, loss_fn)
+            if eval_:
+                test_loss, test_acc = validate(
+                    state, testloader, seq_len, in_dim, loss_fn)
+            else:
+                test_loss = 0
+                test_acc = 0
 
             print(f"\n=>> Epoch {epoch + 1} Metrics ===")
             print(
@@ -319,8 +333,12 @@ def train(args):
         else:
             # Use test set as validation set
             #print(f"[*] Running Epoch {epoch + 1} Test...")
-            val_loss, val_acc = validate(
-                state, testloader, seq_len, in_dim, loss_fn)
+            if eval_:
+                val_loss, val_acc = validate(
+                    state, testloader, seq_len, in_dim, loss_fn)
+            else:
+                val_loss = 0
+                val_acc = 0
 
             #print(f"\n=>> Epoch {epoch + 1} Metrics ===")
             #print(

@@ -60,11 +60,11 @@ def create_train_state(model, rng, lr, momentum, weight_decay, in_dim, batch_siz
 
 
 @partial(jax.jit, static_argnums=(4))
-def compute_bp_grads(state, state_bp, inputs, labels, loss_function):
+def compute_bp_grads(state, state_bp, inputs, labels_in, loss_function):
 
     def loss_comp(params):
         logits = state_bp.apply_fn({"params": params}, inputs)
-        loss = get_loss(loss_function, logits, labels)
+        loss = get_loss(loss_function, logits - jax.lax.stop_gradient(logits), labels_in)
         return loss
 
     _, grads_ = jax.value_and_grad(loss_comp)(
@@ -73,7 +73,7 @@ def compute_bp_grads(state, state_bp, inputs, labels, loss_function):
     return grads_
 
 
-def train_epoch(state, state_bp, trainloader, loss_function, n, mode, compute_alignments, lam):
+def train_epoch(state, state_bp, trainloader, loss_function, n, mode, compute_alignments, lam, key):
     """
     Training function for an epoch that loops over batches.
     ...
@@ -107,16 +107,26 @@ def train_epoch(state, state_bp, trainloader, loss_function, n, mode, compute_al
     norms_ = []
     norms = []
 
+    if loss_function == 'random':
+        flag = 'CE'
+    else:
+        flag = loss_function
+
     for i, batch in enumerate(tqdm(trainloader)):
+
+        key, key_curr = jax.random.split(key, num=2)
+
         inputs, labels = prep_batch(batch)
+
+        labels = adapt_labels(labels, key_curr, loss_function)
 
         if i < n and compute_alignments:
             if mode != "bp":
                 grads_ = compute_bp_grads(
-                    state, state_bp, inputs, labels, loss_function)
+                    state, state_bp, inputs, labels, flag)
         # parallel_train_step = jax.vmap(train_step, in_axes=(None,0,0, None))
         # state, loss, grads = parallel_train_step(state, inputs, labels, loss_function)
-        state, loss, grads = train_step(state, inputs, labels, loss_function)
+        state, loss, grads = train_step(state, inputs, labels, flag)
         batch_losses.append(loss)
 
         if i < n and compute_alignments:
@@ -178,7 +188,7 @@ def train_epoch(state, state_bp, trainloader, loss_function, n, mode, compute_al
 
 
 @partial(jax.jit, static_argnums=(3))
-def train_step(state, inputs, labels, loss_function):
+def train_step(state, inputs, labels_in, loss_function):
     """
     Performs a single training step given a batch of data
     ...
@@ -193,10 +203,9 @@ def train_step(state, inputs, labels, loss_function):
     loss_function: str
         identifier to select loss function
     """
-
     def loss_fn(params):
         logits = state.apply_fn({"params": params}, inputs)
-        loss = get_loss(loss_function, logits, labels)
+        loss = get_loss(loss_function, logits - jax.lax.stop_gradient(logits), labels_in)
         return loss
 
     loss, grads = jax.value_and_grad(loss_fn)(state.params)
@@ -223,6 +232,17 @@ def get_loss(loss_function, logits, labels):
         ).mean()
     elif loss_function == "MSE":
         return optax.l2_loss(jnp.squeeze(logits), jnp.squeeze(labels)).mean()
+    
+
+@partial(jax.jit, static_argnums = (2))
+def adapt_labels(labels_in, key, loss_function):
+    def true_fun(labels, key):    
+        return jax.random.randint(key, labels.shape, 0, 10) #
+    def false_fun(labels, key):
+        return labels
+    condition = loss_function=='random'
+    labels = jax.lax.cond(condition, true_fun, false_fun, labels_in, key)
+    return labels
 
 
 def prep_batch(batch):
