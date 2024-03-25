@@ -51,6 +51,13 @@ def train(args):
     loss_func = args.loss_func
     eval_ = args.eval
 
+    """
+    Now contains possibility to run with a random loss as follows: For L_CE sample label
+    y randomly and fix the output to be constant zero. The random sampling is done via setting 
+    loss_func to 'rand' normal computation is done via 'arch'. To have constant zero output the resective 
+    line in compute_bp_grads and train_step have to be outcomment and incommented respectively. 
+    """
+
     if mode == 'bp':
         compute_alignments = False
 

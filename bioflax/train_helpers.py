@@ -64,7 +64,9 @@ def compute_bp_grads(state, state_bp, inputs, labels_in, loss_function):
 
     def loss_comp(params):
         logits = state_bp.apply_fn({"params": params}, inputs)
-        loss = get_loss(loss_function, logits - jax.lax.stop_gradient(logits), labels_in)
+        # outcomment this line to start a run with constant zero prediction
+        # loss = get_loss(loss_function, logits - jax.lax.stop_gradient(logits), labels_in)
+        loss = get_loss(loss_function, logits, labels_in)
         return loss
 
     _, grads_ = jax.value_and_grad(loss_comp)(
@@ -205,7 +207,9 @@ def train_step(state, inputs, labels_in, loss_function):
     """
     def loss_fn(params):
         logits = state.apply_fn({"params": params}, inputs)
-        loss = get_loss(loss_function, logits - jax.lax.stop_gradient(logits), labels_in)
+        # outcomment this line to run constant zero loss
+        # loss = get_loss(loss_function, logits - jax.lax.stop_gradient(logits), labels_in)
+        loss = get_loss(loss_function, logits, labels_in)
         return loss
 
     loss, grads = jax.value_and_grad(loss_fn)(state.params)
