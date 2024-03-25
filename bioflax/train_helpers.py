@@ -76,7 +76,7 @@ def compute_bp_grads(state, state_bp, inputs, labels, loss_function):
 
 
 def train_epoch(state, state_bp, trainloader, 
-                loss_function, n, mode, compute_alignments, lam, beta, reset, p, key): 
+                loss_function, n, mode, compute_alignments, lam):#, beta, reset, p, key, reset_lr, new_lr, momentum): only outcommented paramteres could become helpful later on
                 #state_reset, trainloader,loss_function, n, mode, compute_alignments, lam, reset):
     """
     Training function for an epoch that loops over batches.
@@ -112,14 +112,7 @@ def train_epoch(state, state_bp, trainloader,
     norms = []
 
     for i, batch in enumerate(tqdm(trainloader)):
-        if reset and i == 0:
-            #print(state.params)
-            state = replace(state, params= interpolate_B_with_kernel(state.params, beta, p, key))
-            #print(state.params)
-            #state_reset = replace(state_reset, params = fa_to_reset(state.params))
-            #train_state = state_reset
-        #else:
-        #    train_state = state
+
         inputs, labels = prep_batch(batch)
 
         if i < n and compute_alignments:

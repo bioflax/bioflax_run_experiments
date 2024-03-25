@@ -22,6 +22,14 @@ parameters:
   period:
     values:
       - 100
+  epoch_reset_lr:
+    values: 
+      - 100
+  new_lr: 
+    values:
+      - 0.01
+      - 0.00316
+      - 0.001
   epochs:
     value: 200
   wandb_project:

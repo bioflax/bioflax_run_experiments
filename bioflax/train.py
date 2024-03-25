@@ -4,8 +4,9 @@ from jax import random
 from jax import config
 from typing import Any
 from .model import BatchBioNeuralNetwork, BioNeuralNetwork
-from .train_helpers import create_train_state, train_epoch, validate, plot_sample, select_initializer
+from .train_helpers import create_train_state, interpolate_B_with_kernel, train_epoch, validate, plot_sample, select_initializer
 from .dataloading import create_dataset
+from dataclasses import replace
 
 
 def train(args):
@@ -62,6 +63,9 @@ def train(args):
     periodically = args.periodically
     beta = args.beta
     interpolate_from_second_reset = args.interpolate_from_second_reset
+    epoch_reset_lr = args.epoch_reset_lr
+    new_lr = args.new_lr
+
 
     if mode == 'bp':
         compute_alignments = False
@@ -299,7 +303,7 @@ def train(args):
         optimizer=optimizer
     )
 
-    reset = False
+    lr_ = lr
     # Training loop over epochs
     best_loss, best_acc, best_epoch = 100000000, - \
         100000000.0, 0  # This best loss is val_loss
@@ -314,7 +318,6 @@ def train(args):
             reset = False # -2 is pure BP lam is set to 0 and hence no resetting to forward weights is neccessary
         else:
             if(periodically and i % period == 0):
-                reset = True
                 if i != 0 and interpolate_from_second_reset:
                     lam = lam_after_second_reset
                     model = BatchBioNeuralNetwork(
@@ -338,10 +341,18 @@ def train(args):
                         optimizer=optimizer,
                         params = state.params
                     )
+                state = replace(state, params= interpolate_B_with_kernel(state.params, beta, p, key))
             elif( (not periodically) and i == period-1):
-                reset = True
-            else:
-                reset = False
+                state = replace(state, params= interpolate_B_with_kernel(state.params, beta, p, key))
+            
+            #state_reset = replace(state_reset, params = fa_to_reset(state.params))
+            #train_state = state_reset
+        #else:
+        #    train_state = state
+        if i == epoch_reset_lr: 
+            sgd = optax.sgd(learning_rate=new_lr, momentum=momentum)
+            state = replace(state, tx=sgd)
+            lr_ = new_lr
         (
             state,
             train_loss,
@@ -354,7 +365,7 @@ def train(args):
             avg_norm_,
             avg_norm
         ) = train_epoch(state, state_bp, trainloader, 
-                        loss_fn, n, mode, compute_alignments, lam, beta, reset, p, key_mask)
+                        loss_fn, n, mode, compute_alignments, lam)#, beta, reset, p, key_mask)
                         #, state_reset, trainloader, loss_fn, n, mode, compute_alignments, lam, reset)
         if (i > 0):
             avg_conv_rate = train_loss/prev_loss
@@ -424,7 +435,7 @@ def train(args):
         metrics = {
             "Training loss": train_loss,
             "Val loss": val_loss,
-            # "lr" : lr_
+            "lr" : lr_
         }
 
         if task == "classification":

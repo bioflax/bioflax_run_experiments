@@ -199,6 +199,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--interpolate_from_second_reset", default=False, help="should weight interpolation between forward and feedback path happen from second reset onward?"
     )
+
+    parser.add_argument(
+        "--epoch_reset_lr", type=int, default=-1, help="epoch at which to reset lr. -1 no reset at all"
+    )
+
+    parser.add_argument(
+        "--new_lr", type=float, default = 0.00316, help="new_lr after reset"
+    )
     args = parser.parse_args()
 
     train(args)
