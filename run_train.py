@@ -197,7 +197,7 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--interpolate_from_second_reset", default=False, help="should weight interpolation between forward and feedback path happen from second reset onward?"
+        "--interpolate_from_second_reset", type=str2bool, default=False, help="should weight interpolation between forward and feedback path happen from second reset onward?"
     )
 
     parser.add_argument(

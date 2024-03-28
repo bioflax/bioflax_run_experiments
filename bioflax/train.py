@@ -341,6 +341,29 @@ def train(args):
                         optimizer=optimizer,
                         params = state.params
                     )
+                elif i == 0 and (not interpolate_from_second_reset):
+                    lam = lam_after_second_reset
+                    model = BatchBioNeuralNetwork(
+                        hidden_layers=hidden_layers,
+                        activations=activations,
+                        interpolation_factor=lam,
+                        features=output_features,
+                        mode=mode,
+                        initializer_kernel=select_initializer(initializer, scale_w),
+                        initializer_B=select_initializer(initializer, scale_b),
+                    )
+                    state = create_train_state(
+                        model=model,
+                        rng=key_model,
+                        lr=lr,  # scheduler, #relevant change at the moment
+                        momentum=momentum,
+                        weight_decay=weight_decay,
+                        in_dim=in_dim,
+                        batch_size=batch_size,
+                        seq_len=seq_len,
+                        optimizer=optimizer,
+                        params = state.params
+                    )
                 state = replace(state, params= interpolate_B_with_kernel(state.params, beta, p, key))
             elif( (not periodically) and i == period-1):
                 state = replace(state, params= interpolate_B_with_kernel(state.params, beta, p, key))
