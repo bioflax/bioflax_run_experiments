@@ -186,6 +186,8 @@ if __name__ == "__main__":
 
     parser.add_argument("--order", type=str, default="input_to_output", choices=[
                         "input_to_output", "output_to_input", "None"], help="order of the layers in the network")
+    
+    parser.add_argument("--freezing", type=int, default=0, help="order of the layers in the network")
 
     args = parser.parse_args()
 

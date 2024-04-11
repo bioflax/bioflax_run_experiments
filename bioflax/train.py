@@ -5,10 +5,14 @@ from jax import config
 from typing import Any
 from .model import BatchBioNeuralNetwork, BioNeuralNetwork
 from flax.training import train_state
-from .train_helpers import create_train_state, train_epoch, validate, plot_sample, select_initializer, update_freezing
+from .train_helpers import create_train_state, train_epoch, validate, plot_sample, select_initializer, update_freezing, freeze_parts
 from .dataloading import create_dataset
 
-
+'''
+Can do two things in this branch depending on which HACK is uncommented:
+- Unfreeze layers in a specific order
+- Unfreeze a set of layers while keeping the rest frozen
+'''
 def train(args):
     """
     Main function for training and eveluating a biomodel. Training and evaluation set up by
@@ -50,6 +54,7 @@ def train(args):
     architecture = args.architecture
     tune_for_lr = args.tune_for_lr
     order = args.order
+    freezing = args.freezing
 
     if mode == 'bp':
         compute_alignments = False
@@ -132,9 +137,9 @@ def train(args):
         activations = ['relu']
         args.activations = activations
     elif architecture == 2:
-        hidden_layers = [1000, 1000, 1000]
+        hidden_layers = [500, 500, 500, 500]
         args.hidden_layers = hidden_layers
-        activations = ['relu', 'relu', 'relu']
+        activations = ['relu', 'relu', 'relu', 'relu']
         args.activations = activations
     elif architecture == 3:
         hidden_layers = [1000, 1000, 1000, 1000, 1000]
@@ -275,40 +280,53 @@ def train(args):
     # Training loop over epochs
     best_loss, best_acc, best_epoch = 100000000, - \
         100000000.0, 0  # This best loss is val_loss
+    if freezing == 0:
+        layers = ['RandomDenseLinearFA_4']
+    elif freezing == 1:
+        layers = ['RandomDenseLinearFA_3','RandomDenseLinearFA_4']
+    elif freezing == 2:
+        layers = ['RandomDenseLinearFA_2','RandomDenseLinearFA_3','RandomDenseLinearFA_4']
+    elif freezing == 3:
+        layers = ['RandomDenseLinearFA_1','RandomDenseLinearFA_2','RandomDenseLinearFA_3','RandomDenseLinearFA_4']
+    elif freezing == 4:
+        layers = ['RandomDenseLinearFA_0','RandomDenseLinearFA_1','RandomDenseLinearFA_2','RandomDenseLinearFA_3','RandomDenseLinearFA_4']
+    #HACK: Uncomment this to unfreeze a part of the network and reezign the rest
+    state = freeze_parts(state, model, layers, lr, momentum)
     for i, epoch in enumerate(range(epochs)):  # (args.epochs):
         # print(f"[*] Starting training epoch {epoch + 1}...")
-        if order == "input_to_output":
-            if i == 0:
-                unfreeze_layer = 'RandomDenseLinearFA_0'
-                state = update_freezing(
-                    state, model, unfreeze_layer, lr, momentum)
-            elif i == 50:
-                unfreeze_layer = 'RandomDenseLinearFA_1'
-                state = update_freezing(
-                    state, model, unfreeze_layer, lr, momentum)
-            elif i == 100:
-                unfreeze_layer = 'RandomDenseLinearFA_2'
-                state = update_freezing(
-                    state, model, unfreeze_layer, lr, momentum)
-            elif i == 150:
-                state = train_state.TrainState(
-                    apply_fn=model.apply, params=state.params, tx=optax.sgd(learning_rate=lr, momentum=momentum))
-        elif order == "output_to_input":
-            if i == 0:
-                unfreeze_layer = 'RandomDenseLinearFA_2'
-                state = update_freezing(
-                    state, model, unfreeze_layer, lr, momentum)
-            elif i == 50:
-                unfreeze_layer = 'RandomDenseLinearFA_1'
-                state = update_freezing(
-                    state, model, unfreeze_layer, lr, momentum)
-            elif i == 100:
-                unfreeze_layer = 'RandomDenseLinearFA_0'
-                state = update_freezing(
-                    state, model, unfreeze_layer, lr, momentum)
-            elif i == 150:
-                state = train_state.TrainState(
-                    apply_fn=model.apply, params=state.params, tx=optax.sgd(learning_rate=lr, momentum=momentum))
+        # HACK: Unfreezing specific layers at specific times
+        # if order == "input_to_output":
+        #     if i == 0:
+        #         unfreeze_layer = 'RandomDenseLinearFA_0'
+        #         state = update_freezing(
+        #             state, model, unfreeze_layer, lr, momentum)
+        #     elif i == 50:
+        #         unfreeze_layer = 'RandomDenseLinearFA_1'
+        #         state = update_freezing(
+        #             state, model, unfreeze_layer, lr, momentum)
+        #     elif i == 100:
+        #         unfreeze_layer = 'RandomDenseLinearFA_2'
+        #         state = update_freezing(
+        #             state, model, unfreeze_layer, lr, momentum)
+        #     elif i == 150:
+        #         state = train_state.TrainState(
+        #             apply_fn=model.apply, params=state.params, tx=optax.sgd(learning_rate=lr, momentum=momentum))
+        # elif order == "output_to_input":
+        #     if i == 0:
+        #         unfreeze_layer = 'RandomDenseLinearFA_2'
+        #         state = update_freezing(
+        #             state, model, unfreeze_layer, lr, momentum)
+        #     elif i == 50:
+        #         unfreeze_layer = 'RandomDenseLinearFA_1'
+        #         state = update_freezing(
+        #             state, model, unfreeze_layer, lr, momentum)
+        #     elif i == 100:
+        #         unfreeze_layer = 'RandomDenseLinearFA_0'
+        #         state = update_freezing(
+        #             state, model, unfreeze_layer, lr, momentum)
+        #     elif i == 150:
+        #         state = train_state.TrainState(
+        #             apply_fn=model.apply, params=state.params, tx=optax.sgd(learning_rate=lr, momentum=momentum))
 
         # print(state.step)
         # lr_ = scheduler(state.step)

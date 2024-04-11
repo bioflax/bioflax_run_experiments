@@ -462,3 +462,15 @@ def update_freezing(state, model, unfreeze_layer, lr, momentum):
     tx = optax.multi_transform({'sgd': optax.sgd(
         learning_rate=lr, momentum=momentum), 'none': optax.set_to_zero()}, label_fn)
     return train_state.TrainState.create(apply_fn=model.apply, params=state.params, tx=tx)
+
+
+def freeze_parts(state, model, layers, lr, momentum):
+    """
+    All layers not in layers are frozen
+    """
+    label_fn = flattened_traversal(
+        lambda path, _: 'sgd' if path[0] in layers else 'none'
+    )
+    tx = optax.multi_transform({'sgd': optax.sgd(
+        learning_rate=lr, momentum=momentum), 'none': optax.set_to_zero()}, label_fn)
+    return train_state.TrainState.create(apply_fn=model.apply, params=state.params, tx=tx)
