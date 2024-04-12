@@ -29,7 +29,7 @@ if __name__ == "__main__":
         "--dataset",
         type=str,
         default="mnist",
-        choices=["mnist", "sinreg", "teacher"],
+        choices=["mnist", "sinreg", "teacher", "mnist_with_mse"],
         help="Dataset for training. Choices: ['mnist', 'sinprop', 'teacher'], Type: str, Default: 'mnist'",
     )
     parser.add_argument(
@@ -194,6 +194,14 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--freeze", type=str2bool, default= False, help="If true then all except for the first layer are frozen"
+    )
+
+    parser.add_argument(
+        "--steps", type=int, default=0, help="Number of steps for power iterations"
+    )
+
+    parser.add_argument(
+        "--full_batch", type=str2bool, default=False, help="Only iterate over the first batch i.e. do full batch"
     )
 
     args = parser.parse_args()

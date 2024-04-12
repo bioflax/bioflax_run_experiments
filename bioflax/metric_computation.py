@@ -1,10 +1,11 @@
+from functools import partial
 import jax
 import jax.numpy as jnp
 import numpy as np
 import jax.tree_util as jax_tree
 
 
-def compute_metrics(state, grads_,  grads, mode, lam):
+def compute_metrics(state, grads_true, grads_est, mode, lam):
     """
     Compute alignment metrics of current epoch for given state of the model and current gradients. Metrics computed are:
     - alignment of forward anf feedback weights per layer (only for fa and kp mode)
@@ -27,30 +28,29 @@ def compute_metrics(state, grads_,  grads, mode, lam):
     """
 
     if mode == 'fa' or mode == 'kp':
-        weight_al_per_layer = compute_weight_alignment(state.params)
+        weight_al_per_layer, norms_kernels_per_layer, norms_Bs_per_layer = compute_weight_alignment(state.params)
     elif mode == 'interpolate_fa_bp':
-        weight_al_per_layer = compute_interpolate_weight_alignment(state.params, lam)
+        weight_al_per_layer, norms_kernels_per_layer, norms_Bs_per_layer = compute_interpolate_weight_alignment(state.params, lam)
     else:
-        weight_al_per_layer = 0
+        weight_al_per_layer, norms_kernels_per_layer, norms_Bs_per_layer = 0
 
-    bias_, _ = jax_tree.tree_flatten(
-        flatten_matrices_in_tree(remove_keys(grads_, ['kernel', 'B' ])))
-    bias, _ = jax_tree.tree_flatten(
-        flatten_matrices_in_tree(remove_keys(grads, ['kernel', 'B'])))
-    kernel_, _ = jax_tree.tree_flatten(
-        flatten_matrices_in_tree(remove_keys(grads_, ['bias', 'B'])))
-    kernel, _ = jax_tree.tree_flatten(
-        flatten_matrices_in_tree(remove_keys(grads, ['bias', 'B'])))
+    bias_true, _ = jax_tree.tree_flatten(
+        flatten_matrices_in_tree(remove_keys(grads_true, ['kernel', 'B' ])))
+    bias_est, _ = jax_tree.tree_flatten(
+        flatten_matrices_in_tree(remove_keys(grads_est, ['kernel', 'B'])))
+    kernel_true, _ = jax_tree.tree_flatten(
+        flatten_matrices_in_tree(remove_keys(grads_true, ['bias', 'B'])))
+    kernel_est, _ = jax_tree.tree_flatten(
+        flatten_matrices_in_tree(remove_keys(grads_est, ['bias', 'B'])))
 
-    bias_al_per_layer = compute_bias_grad_al_layerwise(bias_, bias)
+    bias_al_per_layer = compute_bias_grad_al_layerwise(bias_true, bias_est)
     wandb_grad_al_per_layer = compute_wandb_grad_al_layerwise(
-        bias_, bias, kernel_, kernel)
-    wandb_grad_al_total, norm_, norm  = compute_wandb_al_total(bias_, bias, kernel_, kernel)
-    rel_norm_grads = compute_rel_norm(bias_, bias, kernel_, kernel)
-    return bias_al_per_layer, wandb_grad_al_per_layer, wandb_grad_al_total, weight_al_per_layer, rel_norm_grads, norm_, norm
+        bias_true, bias_est, kernel_true, kernel_est)
+    wandb_grad_al_total, norm_true, norm_est, rel_norm_grads, norm_proj_grad  = compute_wandb_al_total(bias_true, bias_est, kernel_true, kernel_est)
+    #rel_norm_grads = compute_rel_norm(bias_true, bias_est, kernel_true, kernel_est)
+    return bias_al_per_layer, wandb_grad_al_per_layer, wandb_grad_al_total, weight_al_per_layer, rel_norm_grads, norm_true, norm_est, norms_kernels_per_layer, norms_Bs_per_layer, norm_proj_grad
 
-
-def summarize_metrics_epoch(bias_als_per_layer, wandb_grad_als_per_layer, wandb_grad_als_total, weight_als_per_layer, rel_norms_grads, norms_, norms, mode):
+def summarize_metrics_epoch(bias_als_per_layer, wandb_grad_als_per_layer, wandb_grad_als_total, weight_als_per_layer, rel_norms_grads, norms_true, norms_est, norms_kernels_per_layer, norms_Bs_per_layer, norms_proj_grad,mode):
     """
     Summarizes all metrics for an epoch - averaging over collected entries.
     ...
@@ -78,10 +78,12 @@ def summarize_metrics_epoch(bias_als_per_layer, wandb_grad_als_per_layer, wandb_
     avg_wandb_grad_al_total = jnp.mean(jnp.array(wandb_grad_als_total))
     avg_weight_al_per_layer = entrywise_average(weight_als_per_layer)
     avg_rel_norm_grads = jnp.mean(jnp.array(rel_norms_grads))
-    avg_norm_ = jnp.mean(jnp.array(norms_))
-    avg_norm = jnp.mean(jnp.array(norms))
-    return avg_bias_al_per_layer, avg_wandb_grad_al_per_layer, avg_wandb_grad_al_total, avg_weight_al_per_layer, avg_rel_norm_grads, avg_norm_, avg_norm
-
+    avg_norm_true = jnp.mean(jnp.array(norms_true))
+    avg_norm_est = jnp.mean(jnp.array(norms_est))
+    avg_norm_kernel_per_layer = entrywise_average(norms_kernels_per_layer)
+    avg_norm_B_per_layer = entrywise_average(norms_Bs_per_layer)
+    avg_norm_proj_grad = jnp.mean(jnp.array(norms_proj_grad))
+    return avg_bias_al_per_layer, avg_wandb_grad_al_per_layer, avg_wandb_grad_al_total, avg_weight_al_per_layer, avg_rel_norm_grads, avg_norm_true, avg_norm_est, avg_norm_kernel_per_layer, avg_norm_B_per_layer, avg_norm_proj_grad
 
 @jax.jit
 def compute_interpolate_weight_alignment(params, lam):
@@ -99,11 +101,11 @@ def compute_interpolate_weight_alignment(params, lam):
         remove_keys(params, ['bias', 'kernel'])))
     Bs = jax.tree_map((lambda a, b : lam * a + (1-lam)*b), Bs, kernels)
     dot_prods = jax_tree.tree_map(jnp.dot, kernels, Bs)
-    norm_kern = jax_tree.tree_map(jnp.linalg.norm, kernels)
-    norm_B = jax_tree.tree_map(jnp.linalg.norm, Bs)
+    layerwise_norm_kern = jax_tree.tree_map(jnp.linalg.norm, kernels)
+    layerwise_norm_B = jax_tree.tree_map(jnp.linalg.norm, Bs)
     layerwise_alignments = jax.tree_map(
-        (lambda x, y, z: x/(y*z)), dot_prods, norm_kern, norm_B)
-    return layerwise_alignments
+        (lambda x, y, z: x/(y*z)), dot_prods, layerwise_norm_kern, layerwise_norm_B)
+    return layerwise_alignments, layerwise_norm_kern, layerwise_norm_B
 
 @jax.jit
 def compute_weight_alignment(params):
@@ -120,15 +122,15 @@ def compute_weight_alignment(params):
     Bs, _ = jax_tree.tree_flatten(flatten_matrices_in_tree(
         remove_keys(params, ['bias', 'kernel'])))
     dot_prods = jax_tree.tree_map(jnp.dot, kernels, Bs)
-    norm_kern = jax_tree.tree_map(jnp.linalg.norm, kernels)
-    norm_B = jax_tree.tree_map(jnp.linalg.norm, Bs)
+    layerwise_norm_kern = jax_tree.tree_map(jnp.linalg.norm, kernels)
+    layerwise_norm_B = jax_tree.tree_map(jnp.linalg.norm, Bs)
     layerwise_alignments = jax.tree_map(
-        (lambda x, y, z: x/(y*z)), dot_prods, norm_kern, norm_B)
-    return layerwise_alignments
+        (lambda x, y, z: x/(y*z)), dot_prods, layerwise_norm_kern, layerwise_norm_B)
+    return layerwise_alignments, layerwise_norm_kern, layerwise_norm_B
 
 
 @jax.jit
-def compute_bias_grad_al_layerwise(bias_, bias):
+def compute_bias_grad_al_layerwise(bias_true, bias_est):
     """
     Computes the alignment of bias gradients per layer: cos(theta) = (bias_.dot(bias))/(||bias_||*||bias||)
     ...
@@ -140,12 +142,12 @@ def compute_bias_grad_al_layerwise(bias_, bias):
         list of bias gradients of current model
     """
     layerwise_alignments = jax.tree_map((lambda a, b: jnp.dot(
-        a, b)/(jnp.linalg.norm(a)*jnp.linalg.norm(b))), bias_, bias)
+        a, b)/(jnp.linalg.norm(a)*jnp.linalg.norm(b))), bias_true, bias_est)
     return layerwise_alignments
 
 
 @jax.jit
-def compute_wandb_grad_al_layerwise(bias_, bias, kernel_, kernel):
+def compute_wandb_grad_al_layerwise(bias_true, bias_est, kernel_true, kernel_est):
     """
     Computes the alignment of weight & bias gradients per layer: 
     cos(theta) = ((bias_, kernel_).dot(bias, kernel)/(||(bias_, kernel_)|| * ||(bias, kernel)||) 
@@ -164,14 +166,14 @@ def compute_wandb_grad_al_layerwise(bias_, bias, kernel_, kernel):
     """
     layerwise_alignments = jax.tree_map((lambda a, b, c, d: (jnp.dot(a, b) + jnp.dot(c, d)) /
                                          (jnp.sqrt(jnp.sum(jnp.multiply(a, a)) + jnp.sum(jnp.multiply(c, c)))
-                                          * jnp.sqrt(jnp.sum(jnp.multiply(b, b)) + jnp.sum(jnp.multiply(d, d))))), bias_, bias, kernel_, kernel)
+                                          * jnp.sqrt(jnp.sum(jnp.multiply(b, b)) + jnp.sum(jnp.multiply(d, d))))), bias_true, bias_est, kernel_true, kernel_est)
     return layerwise_alignments
 
 
 @jax.jit
-def compute_wandb_al_total(bias_, bias, kernel_, kernel):
+def compute_wandb_al_total(bias_true, bias_est, kernel_true, kernel_est):
     """
-    Computes the alignment of total gradients per layer:
+    Computes the alignment of total gradients:
     cos(theta) = ((bias_, kernel_).dot(bias, kernel)/(||(bias_, kernel_)|| * ||(bias, kernel)||)
     - where the biases and weights are concatenated across layers
     ...
@@ -187,36 +189,42 @@ def compute_wandb_al_total(bias_, bias, kernel_, kernel):
         list of weight gradients of current model
     """
     layerwise_alignments = jax.tree_map((lambda a, b, c, d: (
-        jnp.dot(a, b) + jnp.dot(c, d))), bias_, bias, kernel_, kernel)
-    squared_norms_ = squared_norm(bias_, kernel_)
-    squared_norms = squared_norm(bias, kernel)
-    norm_ = jnp.sqrt(jnp.sum(jnp.array(squared_norms_)))
-    norm = jnp.sqrt(jnp.sum(jnp.array(squared_norms)))
-    res = jnp.sum(jnp.array(layerwise_alignments))/(norm_ * norm)
-    return res, norm_, norm
+        jnp.dot(a, b) + jnp.dot(c, d))), bias_true, bias_est, kernel_true, kernel_est)
+    squared_norms_true = squared_norm(bias_true, kernel_true)
+    squared_norms_est = squared_norm(bias_est, kernel_est)
+    norm_true = jnp.sqrt(jnp.sum(jnp.array(squared_norms_true)))
+    norm_est = jnp.sqrt(jnp.sum(jnp.array(squared_norms_est)))
+    rel_norm_grads = norm_est/norm_true
+    proj = jnp.sum(jnp.array(layerwise_alignments))/(norm_true * norm_true)
+    projected_biases = jax.tree_map((lambda a, b: a - proj * b), bias_est, bias_true)
+    projected_kernels = jax.tree_map((lambda a, b: a - proj * b), kernel_est, kernel_true)
+    norm_proj_grad = jnp.sqrt(jnp.sum(jnp.array(squared_norm(projected_biases, projected_kernels))))
+
+    res = jnp.sum(jnp.array(layerwise_alignments))/(norm_true * norm_est)
+    return res, norm_true, norm_est, rel_norm_grads, norm_proj_grad
 
 
-@jax.jit
-def compute_rel_norm(bias_, bias, kernel_, kernel):
-    """
-    Computes the relative norm of gradient of current model compared to gradient of comparison model:
-    ||(bias_, kernel_)||/||(bias, kernel)||
-    - where the biases and weights are concatenated across layers
-    ...
-    Parameters
-    ----------
-    bias_ : list
-        list of bias gradients of comparison model
-    bias : list
-        list of bias gradients of current model
-    kernel_ : list
-        list of weight gradients of comparison model
-    kernel : list
-        list of weight gradients of current model
-    """
-    squared_norms_ = squared_norm(bias_, kernel_)
-    squared_norms = squared_norm(bias, kernel)
-    return jnp.sqrt(jnp.sum(jnp.array(squared_norms_)))/jnp.sqrt(jnp.sum(jnp.array(squared_norms)))
+# @jax.jit
+# def compute_rel_norm(bias_true, bias_est, kernel_true, kernel_est):
+#     """
+#     Computes the relative norm of gradient of current model compared to gradient of comparison model:
+#     ||(bias_, kernel_)||/||(bias, kernel)||
+#     - where the biases and weights are concatenated across layers
+#     ...
+#     Parameters
+#     ----------
+#     bias_ : list
+#         list of bias gradients of comparison model
+#     bias : list
+#         list of bias gradients of current model
+#     kernel_ : list
+#         list of weight gradients of comparison model
+#     kernel : list
+#         list of weight gradients of current model
+#     """
+#     squared_norms_true = squared_norm(bias_true, kernel_true)
+#     squared_norms_est = squared_norm(bias_est, kernel_est)
+#     return jnp.sqrt(jnp.sum(jnp.array(squared_norms_est)))/jnp.sqrt(jnp.sum(jnp.array(squared_norms_true)))
 
 
 def squared_norm(a, b):

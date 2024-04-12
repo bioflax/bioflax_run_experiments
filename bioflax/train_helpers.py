@@ -11,6 +11,7 @@ import jax.tree_util as jax_tree
 from typing import Any
 from jax.nn import one_hot
 from tqdm import tqdm
+from jax.flatten_util import ravel_pytree
 from flax.training import train_state
 from functools import partial
 from .metric_computation import compute_metrics, summarize_metrics_epoch, reorganize_dict
@@ -76,7 +77,7 @@ def compute_bp_grads(state, state_bp, inputs, labels, loss_function):
     return grads_
 
 
-def train_epoch(state, state_bp, trainloader, loss_function, n, mode, compute_alignments, lam, reset, p, key_mask, use_wandb, prev_loss):
+def train_epoch(model, state, state_bp, trainloader, loss_function, n, mode, compute_alignments, lam, reset, p, key_mask, use_wandb, prev_loss, key_power_it, steps, full_batch):
     """
     Training function for an epoch that loops over batches.
     ...
@@ -107,64 +108,93 @@ def train_epoch(state, state_bp, trainloader, loss_function, n, mode, compute_al
     rel_norms_grads = []
     weight_als_per_layer = []
     conv_rates = []
-    norms_ = []
-    norms = []
+    norms_true = []
+    norms_est = []
+    sharpness_collected = []
+    norms_kernels_per_layer = []
+    norms_Bs_per_layer = []
+    norms_proj_grad = []
+
 
     for i, batch in enumerate(tqdm(trainloader)):
-        inputs, labels = prep_batch(batch)
+        if full_batch  and i == 0 or not(full_batch):
+            inputs, labels = prep_batch(batch)
 
-        if compute_alignments:
-            if mode != "bp":
-                grads_ = compute_bp_grads(
-                    state, state_bp, inputs, labels, loss_function)
-        # parallel_train_step = jax.vmap(train_step, in_axes=(None,0,0, None))
-        # state, loss, grads = parallel_train_step(state, inputs, labels, loss_function)
-        state, loss, grads = train_step(state, inputs, labels, loss_function)
-        batch_losses.append(loss)
+            if compute_alignments:
+                if mode != "bp":
+                    grads_true = compute_bp_grads(
+                        state, state_bp, inputs, labels, loss_function)
+            
+            state, loss, grads_est = train_step(state, inputs, labels, loss_function)
+
+            batch_losses.append(loss)
+            
+            if compute_alignments:
+                (
+                    bias_al_per_layer,
+                    wandb_grad_al_per_layer,
+                    wandb_grad_al_total,
+                    weight_al_per_layer,
+                    rel_norm_grads,
+                    norm_true,
+                    norm_est, 
+                    norm_kernels_per_layer,
+                    norm_Bs_per_layer,
+                    norm_proj_grad
+                ) = compute_metrics(state, grads_true, grads_est, mode, lam)
+                bias_als_per_layer.append(bias_al_per_layer)
+                wandb_grad_als_per_layer.append(wandb_grad_al_per_layer)
+                wandb_grad_als_total.append(wandb_grad_al_total)
+                weight_als_per_layer.append(weight_al_per_layer)
+                rel_norms_grads.append(rel_norm_grads)
+                norms_true.append(norm_true)
+                norms_est.append(norm_est)
+                norms_kernels_per_layer.append(norm_kernels_per_layer)
+                norms_Bs_per_layer.append(norm_Bs_per_layer)
+                norms_proj_grad.append(norm_proj_grad)
+
+
+                rng, key_power_it = jax.random.split(key_power_it, num=2)
+                if i == 0:
+                    sharpness = power_iteration(state, state_bp, inputs, labels, loss_function, rng, steps)
+
+                    sharpness_collected.append(sharpness)
+
+            if i == 0:
+                curr_rate=batch_losses[-1]/prev_loss
+            if i > 0:
+                curr_rate = batch_losses[-1]/batch_losses[-2]
+                conv_rates.append(curr_rate)
+            neg_rate = 1-curr_rate
+            metrics={
+                "Training loss": loss,
+                "Conv_Rate": curr_rate,
+                "1-Conv_Rate": neg_rate,
+                "Rel_norm_grads": rel_norm_grads,
+                "Gradient alignment": wandb_grad_al_total,
+                "Norm true gradient": norm_true,
+                "Norm est. gradient": norm_est,
+                "Norm of est_gradient projected on plane orthogonal to true gradient": norm_proj_grad
+            }
+            if i == 0:
+                metrics["Sharpness"] = sharpness
+            for i, al in enumerate(bias_al_per_layer):
+                    metrics[f"Alignment bias gradient layer {i}"] = al
+            for i, al in enumerate(wandb_grad_al_per_layer):
+                metrics[f"Alignment gradient layer {i}"] = al
+            if mode == "fa" or mode == "kp" or mode == "interpolate_fa_bp":
+                for i, al in enumerate(weight_al_per_layer):
+                    metrics[f"Alignment layer {i}"] = al
+                for i, norm in enumerate(norm_kernels_per_layer):
+                    metrics[f"Norm layer {i}"] = norm
+                for i, norm in enumerate(norm_Bs_per_layer):
+                    metrics[f"Norm B layer {i}"] = norm
+            if use_wandb: 
+                wandb.log(metrics)
         
-        if compute_alignments:
-            (
-                bias_al_per_layer,
-                wandb_grad_al_per_layer,
-                wandb_grad_al_total,
-                weight_al_per_layer,
-                rel_norm_grads,
-                norm_,
-                norm
-            ) = compute_metrics(state, grads_, grads, mode, lam)
-            bias_als_per_layer.append(bias_al_per_layer)
-            wandb_grad_als_per_layer.append(wandb_grad_al_per_layer)
-            wandb_grad_als_total.append(wandb_grad_al_total)
-            weight_als_per_layer.append(weight_al_per_layer)
-            rel_norms_grads.append(rel_norm_grads)
-            norms_.append(norm_)
-            norms.append(norm)
+            if full_batch:
+                return state, jnp.mean(jnp.array(batch_losses)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 
-        if i == 0:
-            curr_rate=batch_losses[-1]/prev_loss
-        if i > 0:
-            curr_rate = batch_losses[-1]/batch_losses[-2]
-            conv_rates.append(curr_rate)
-        neg_rate = 1-curr_rate
-        metrics={
-            "Training loss": loss,
-            "Conv_Rate": curr_rate,
-            "1-Conv_Rate": neg_rate,
-            "Rel_norm_grads": rel_norm_grads,
-            "Gradient alignment": wandb_grad_al_total,
-            "Norm true gradient": norm,
-            "Norm est. gradient": norm_,
-        }
-        for i, al in enumerate(bias_al_per_layer):
-                metrics[f"Alignment bias gradient layer {i}"] = al
-        for i, al in enumerate(wandb_grad_al_per_layer):
-            metrics[f"Alignment gradient layer {i}"] = al
-        if mode == "fa" or mode == "kp" or mode == "interpolate_fa_bp":
-            for i, al in enumerate(weight_al_per_layer):
-                metrics[f"Alignment layer {i}"] = al
-        if use_wandb: 
-            wandb.log(metrics)
-    print(len(batch_losses))
     if compute_alignments:
         (
             avg_bias_al_per_layer,
@@ -172,16 +202,22 @@ def train_epoch(state, state_bp, trainloader, loss_function, n, mode, compute_al
             avg_wandb_grad_al_total,
             avg_weight_al_per_layer,
             avg_rel_norm_grads,
-            avg_norm_,
-            avg_norm
+            avg_norm_true,
+            avg_norm_est,
+            avg_norm_kernel_per_layer,
+            avg_norm_B_per_layer, 
+            avg_norm_proj_grad
         ) = summarize_metrics_epoch(
             bias_als_per_layer,
             wandb_grad_als_per_layer,
             wandb_grad_als_total,
             weight_als_per_layer,
             rel_norms_grads,
-            norms_,
-            norms,
+            norms_true,
+            norms_est,
+            norms_kernels_per_layer,
+            norms_Bs_per_layer,
+            norms_proj_grad,
             mode,
         )
         return (
@@ -193,12 +229,16 @@ def train_epoch(state, state_bp, trainloader, loss_function, n, mode, compute_al
             avg_weight_al_per_layer,
             avg_rel_norm_grads,
             jnp.mean(jnp.array(conv_rates)),
-            avg_norm_,
-            avg_norm
+            avg_norm_true,
+            avg_norm_est,
+            avg_norm_kernel_per_layer,
+            avg_norm_B_per_layer,
+            avg_norm_proj_grad,
         )
     else:
-        return state, jnp.mean(jnp.array(batch_losses)), 0, 0, 0, 0, 0, 0, 0, 0
+        return state, jnp.mean(jnp.array(batch_losses)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 
+# the lambda used here is in double use with interpolation which needs to be corrected
 def interpolate_B_with_kernel(d, lam, p, key):
     """Replace 'B' with 'kernel' in each 'RandomDenseLinearFA_i' layer."""
     new_dict = {}
@@ -212,6 +252,38 @@ def interpolate_B_with_kernel(d, lam, p, key):
         else:
             new_dict[layer] = subdict
     return new_dict
+
+@partial(jax.jit, static_argnames=("steps", "loss_function"))
+def power_iteration(state, state_bp, inputs, labels, loss_function, rng, steps):
+    params = reorganize_dict({"params": state.params})["params"]
+    #print(params)
+    #print(state.params)
+    #print(state_bp.params)
+    p, unravel = ravel_pytree(params)
+
+    safe_unravel = lambda p: jax.tree_util.tree_map(lambda x: x.astype(p.dtype), unravel(p))
+
+    def loss_fn(p):
+        logits = state_bp.apply_fn({"params": safe_unravel(p)}, inputs)
+        loss = get_loss(loss_function, logits, labels)
+        return loss
+    
+
+    def hvp(p, v):
+        return jax.jvp(jax.grad(loss_fn), (p,), (v,))[1]
+
+    # Compute biggest eigval and eigvect of Hessian with power iteration
+    v = jax.random.normal(rng, (p.size,)).astype(p.dtype)
+    v = v / jnp.linalg.norm(v)
+    def loop_body(v, _):
+        v_new = hvp(p, v)
+        v_new_normalized = v_new / jnp.linalg.norm(v_new)
+        return v_new_normalized, v_new_normalized
+
+    v, vs = jax.lax.scan(loop_body, v, xs=jnp.arange(steps))
+    v = vs[-1]
+    sharpness = v @ hvp(p,v)
+    return sharpness
 
 def reset_to_fa(d):
     """Replace keys in the dictionary."""
@@ -264,7 +336,7 @@ def train_step(state, inputs, labels, loss_function):
     return state, loss, grads
 
 
-def get_loss(loss_function, logits, labels):
+def get_loss(loss_function, logits, labels, rng, num_classes=10):
     """
     Returns the loss for network outputs and labels
     ...
@@ -283,6 +355,13 @@ def get_loss(loss_function, logits, labels):
         ).mean()
     elif loss_function == "MSE":
         return optax.l2_loss(jnp.squeeze(logits), jnp.squeeze(labels)).mean()
+    elif loss_function == "MSE_with_integer_labels":
+        if num_classes is None:
+            raise ValueError("num_classes must be provided for MSE_with_integer_labels")
+        # Convert integer labels to one-hot encoded labels
+        one_hot_labels = jax.nn.one_hot(labels, num_classes)
+        # Compute MSE loss using the one-hot encoded labels
+        return optax.l2_loss(jnp.squeeze(logits), one_hot_labels).mean()
 
 
 def prep_batch(batch):
@@ -338,7 +417,7 @@ def eval_step(inputs, labels, state, loss_function):
     logits = state.apply_fn({"params": state.params}, inputs)
     losses = get_loss(loss_function, logits, labels)
     accs = 0
-    if loss_function == "CE":
+    if loss_function == "CE" or loss_function == "MSE_with_integer_labels":
         accs = compute_accuracy((jnp.squeeze(logits)), labels)
     return jnp.mean(losses), accs, logits
 
@@ -366,11 +445,11 @@ def validate(state, testloader, seq_len, in_dim, loss_function):
         inputs, labels = prep_batch(batch)
         loss, acc, _ = eval_step(inputs, labels, state, loss_function)
         losses.append(loss)
-        if loss_function == "CE":
+        if loss_function == "CE" or loss_function == "MSE_with_integer_labels":
             accuracies.append(jnp.mean(acc))
 
     acc_mean = 10000000.0
-    if loss_function == "CE":
+    if loss_function == "CE" or loss_function == "MSE_with_integer_labels":
         acc_mean = jnp.mean(jnp.array([accuracies]))
     return jnp.mean(jnp.array([losses])), acc_mean
 

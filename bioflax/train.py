@@ -16,6 +16,10 @@ def train(args):
     Periodic Resetting allows to periodically reset the weights weights on the backward path to the current weights on the forward path. Do so by setting 
     periodically to true and specifying the period value. The argument probability (later in code p) allows to control the probability of a specific weight b
     being reset where the probability is input to a bernoulli distribution for each matrix element. 
+
+    Moreover sharpness is tracked now. args.steps computes the number of steps in the power iteration.
+
+    With full_batch true one uses only the first batch and that way can emulate full batch training.
     """
     config.update("jax_enable_x64", True)
 
@@ -56,6 +60,8 @@ def train(args):
     p = args.probability
     periodically = args.periodically
     freeze = args.freeze
+    steps = args.steps
+    full_batch = args.full_batch
 
     if mode == 'bp':
         compute_alignments = False
@@ -63,6 +69,11 @@ def train(args):
     if dataset == "mnist":
         task = "classification"
         loss_fn = "CE"
+        output_features = 10
+    elif dataset == "mnist_with_mse":
+        task = "classification"
+        dataset = "mnist"
+        loss_fn = "MSE_with_integer_labels"
         output_features = 10
     else:
         task = "regression"
@@ -97,9 +108,9 @@ def train(args):
         activations = ['relu', 'relu']
         args.activations = activations
     elif architecture == 1:
-        hidden_layers = [50]
+        hidden_layers = [5, 5]
         args.hidden_layers = hidden_layers
-        activations = ['relu']
+        activations = ['relu', 'relu']
         args.activations = activations
     # elif architecture == 1:
     #     hidden_layers = [500, 500]
@@ -166,9 +177,8 @@ def train(args):
     # Set seed for randomness
     print("[*] Setting Randomness...")
     key = random.PRNGKey(seed)
-    key_data, key_model, key_model_bp, key_model_reset = random.split(key, num=4)
+    key_data, key_model, key_model_bp, key_power_it = random.split(key, num=4)
 
-    # Create dataset
     (
         trainloader,
         valloader,
@@ -189,11 +199,6 @@ def train(args):
         test_set_size=test_set_size,
         teacher_act=teacher_act,
     )
-    print(f"[*] Starting training on '{dataset}'...")
-
-    # Learning rate scheduler
-    # print(total_steps)
-    # scheduler = optax.warmup_cosine_decay_schedule(init_value=lr, peak_value=5*lr, warmup_steps=0.1*total_steps, decay_steps=total_steps)
 
     model = BatchBioNeuralNetwork(
         hidden_layers=hidden_layers,
@@ -215,16 +220,6 @@ def train(args):
         initializer_kernel=select_initializer(initializer, scale_w),
         initializer_B=select_initializer(initializer, scale_b),
     )
-
-    #reset_model = BatchBioNeuralNetwork(
-    #    hidden_layers=hidden_layers,
-    #    activations=activations,
-    #    interpolation_factor=lam,
-    #    features=output_features,
-    #    mode="reset",
-    #    initializer_kernel=select_initializer(initializer, scale_w),
-    #    initializer_B=select_initializer(initializer, scale_b),
-    #)
 
     key, key_model = random.split(key, num=2)
     if tune_for_lr:
@@ -291,18 +286,6 @@ def train(args):
         epochs=epochs,
         steps_per_epoch=train_size,
     )
-    #print(train_size)
-    #state_reset = create_train_state(
-    #    model=reset_model,
-    #    rng=key_model_reset,
-    #    lr=lr,  # scheduler, #relevant change at the moment
-    #    momentum=momentum,
-    #    weight_decay=weight_decay,
-    #    in_dim=in_dim,
-    #    batch_size=batch_size,
-    #    seq_len=seq_len,
-    #    optimizer=optimizer
-    #)
 
     if freeze:
         unfreeze_layer = 'RandomDenseLinearInterpolateFABP_0'
@@ -312,15 +295,22 @@ def train(args):
         
 
     reset = False
+    #HACK: Must be removed
+    compute_sharpness = False
     # Training loop over epochs
     best_loss, best_acc, best_epoch = 100000000, - \
         100000000.0, 0  # This best loss is val_loss
     prev_loss=2.
     for i, epoch in enumerate(range(epochs)):  # (args.epochs):
         #print(f"[*] Starting training epoch {epoch + 1}...")
-        key_mask, key = random.split(key, num=2)
+        key_mask, key, key_power_it = random.split(key, num=3)
         # print(state.step)
         # lr_ = scheduler(state.step)
+        # HACK: is not used can be used to control how often to compute the sharpness
+        if i % 10 == 0:
+            compute_sharpness = True
+        else:
+            compute_sharpness = False
         if(period == -1): #-1 is FA pure (in frist periodic run it was 0)
             reset = False
         else:
@@ -339,10 +329,14 @@ def train(args):
             avg_weight_al_per_layer,
             avg_rel_norm_grads,
             avg_conv_rate,
-            avg_norm_,
-            avg_norm
-        ) = train_epoch(state, state_bp, trainloader, 
-                        loss_fn, n, mode, compute_alignments, lam, reset, p, key_mask, use_wandb, prev_loss)
+            avg_norm_true,
+            avg_norm_est,
+            avg_norm_kernel_per_layer,
+            avg_norm_B_per_layer,
+            avg_norm_proj_grad,
+
+        ) = train_epoch(model, state, state_bp, trainloader, 
+                        loss_fn, n, mode, compute_alignments, lam, reset, p, key_mask, use_wandb, prev_loss, key_power_it, steps, full_batch)
                         #, state_reset, trainloader, loss_fn, n, mode, compute_alignments, lam, reset)
         if (i > 0):
             avg_conv_rate = train_loss/prev_loss
@@ -421,7 +415,10 @@ def train(args):
             metrics["Test loss"] = test_loss
             if task == "classification":
                 metrics["Test accuracy"] = test_acc
-
+            metrics["Validation loss"] = val_loss
+            if task == "classification":
+                metrics["Validation accuracy"] = val_acc
+        wandb.log(metrics)
         # if compute_alignments:
         #     metrics["lambda"] = lam
         #     metrics["Relative norms gradients"] = avg_rel_norm_grads
