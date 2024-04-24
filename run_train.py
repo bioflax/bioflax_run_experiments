@@ -29,7 +29,7 @@ if __name__ == "__main__":
         "--dataset",
         type=str,
         default="mnist",
-        choices=["mnist", "sinreg", "teacher", "mnist_with_mse"],
+        #choices=["mnist", "sinreg", "teacher", "mnist_with_mse", "mnist_mse_with_random_labels", "mnist_mse_with_predictions", "mnist_ce_with_random_labels_0_pred", "mnist_with_targets", "mnist_mse_with_labels", "mnist_mse_with_loss_interpolation", "mnist_mse_with_control_alignment"],
         help="Dataset for training. Choices: ['mnist', 'sinprop', 'teacher'], Type: str, Default: 'mnist'",
     )
     parser.add_argument(
@@ -106,7 +106,22 @@ if __name__ == "__main__":
         "--momentum", type=float, default=0, help="Momentum value. Type: float, Default: 0"
     )
     parser.add_argument(
+        "--weight_decay_1",
+        type=float,
+        default=0,
+        help="Weight decay for learning. Type: float, Default: 0.",
+    )
+
+
+    parser.add_argument(
         "--weight_decay",
+        type=float,
+        default=0,
+        help="Not usedanymore but dummy for old configs to be valid",
+    )
+
+    parser.add_argument(
+        "--weight_decay_2",
         type=float,
         default=0,
         help="Weight decay for learning. Type: float, Default: 0.",
@@ -204,6 +219,14 @@ if __name__ == "__main__":
         "--full_batch", type=str2bool, default=False, help="Only iterate over the first batch i.e. do full batch"
     )
 
+    parser.add_argument(
+        "--grads_minus_mode", type=str2bool, default=False, help="If true grads are subtracted from the estimated ones"
+    )
+
+    parser.add_argument(
+        "--alpha", type=float, default = 1.0, help="interpolate between loss and alignemnt"
+        )
+    
     args = parser.parse_args()
 
     train(args)

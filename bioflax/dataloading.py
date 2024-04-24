@@ -39,10 +39,90 @@ def create_dataset(seed, batch_size, dataset, val_split, input_dim, output_dim, 
     """
     if (dataset == "mnist"):
         return create_mnist_dataset(seed, batch_size, val_split)
+    elif (dataset == "mnist_with_targets"):
+        return create_mnist_dataset_targets(seed, batch_size, val_split)
     elif (dataset == "teacher" or dataset == "sinreg"):
         return create_random_dataset(seed, batch_size, val_split, input_dim, output_dim, L, train_set_size, test_set_size, dataset, teacher_act)
     else:
         raise ValueError("Unknown dataset")
+
+
+import torch
+from torch.utils.data import DataLoader, Dataset
+from torchvision import datasets, transforms
+import numpy as np
+
+class RandomTargetMNIST(Dataset):
+    """
+    MNIST dataset with randomly sampled targets from a normal distribution.
+    Each target is a vector of 10 entries, with each entry sampled i.i.d. from N(0, 1).
+    """
+    def __init__(self, mnist_dataset):
+        self.mnist_dataset = mnist_dataset
+        self.random_targets = np.random.normal(loc=0.0, scale=1.0, size=(len(mnist_dataset), 10))
+
+    def __len__(self):
+        return len(self.mnist_dataset)
+
+    def __getitem__(self, idx):
+        image, _ = self.mnist_dataset[idx]
+        random_target = torch.from_numpy(self.random_targets[idx]).float()
+        return image, random_target
+
+def create_mnist_dataset_targets(seed, batch_size, val_split):
+    """
+    Returns PyTorch train-, test-, and validation-dataloaders for MNIST dataset with randomly sampled vector targets.
+    
+    Parameters
+    ----------
+    seed : int
+        Seed for randomness
+    batch_size : int
+        Size of batches
+    val_split : float
+        Fraction of the training set used for validation
+    """
+    _name_ = "mnist"
+    d_input = 1
+    d_output = 10  # Output dimension is now 10 for the target vectors
+    L = 784
+
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.1307,), (0.3081,)),
+        transforms.Lambda(lambda x: x.view(L, d_input).T),
+    ])
+
+    train_dataset = datasets.MNIST(
+        'data', train=True, download=True, transform=transform)
+    test_dataset = datasets.MNIST(
+        'data', train=False, download=True, transform=transform)
+
+    # Wrap datasets with the RandomTargetMNIST to replace labels with random targets
+    train_dataset = RandomTargetMNIST(train_dataset)
+    test_dataset = RandomTargetMNIST(test_dataset)
+
+    # Splitting train dataset into train and validation sets
+    num_train = len(train_dataset)
+    indices = list(range(num_train))
+    split = int(np.floor(val_split * num_train))
+
+    np.random.seed(seed)
+    np.random.shuffle(indices)
+
+    train_idx, val_idx = indices[split:], indices[:split]
+
+    train_sampler = torch.utils.data.SubsetRandomSampler(train_idx)
+    val_sampler = torch.utils.data.SubsetRandomSampler(val_idx)
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=train_sampler)
+    val_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=val_sampler)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size)
+
+    train_size = len(train_loader)
+
+    return train_loader, val_loader, test_loader, d_output, L, d_input, train_size
+
 
 
 def create_mnist_dataset(seed, batch_size, val_split):

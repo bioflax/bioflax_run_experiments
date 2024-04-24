@@ -1,0 +1,50 @@
+method: grid
+program: run_train.py
+parameters:
+  lr:
+    values:
+      - 0.0316
+      - 0.1
+  dataset:
+    values:
+      - "mnist_mse_with_labels"
+      #- "mnist_mse_with_random_labels"
+      #- "mnist_mse_with_predictions"
+      #- "mnist_with_targets"
+  full_batch:
+    value: False
+  weight_decay:
+    values:
+      - 0.0
+  optimizer:
+    value: 'sgd'
+  batch_size:
+    value: 4500
+  tune_for_lr:
+    value: False
+  mode:
+    value: 'interpolate_fa_bp'
+  architecture:
+    values:
+      - 1
+      - 2
+  epochs:
+    value: 250
+  period:
+    value: -1
+  wandb_project:
+    value: 'weight_init'
+  initializer:
+    value: 'lecun'
+  steps:
+    value: 25
+  compute_alignments: 
+    value : True
+  lam:
+    values:
+      - 1.0
+  jax_seed:
+    values:
+      - 10
+      - 20
+      - 30

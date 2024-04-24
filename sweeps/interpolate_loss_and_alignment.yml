@@ -1,0 +1,68 @@
+method: grid
+program: run_train.py
+parameters:
+  lr:
+    values:
+      - 0.316
+      - 0.00316
+  dataset:
+    values:
+      - "mnist_ce_with_loss_interpolation"
+      #- "mnist_ce_with_label_zero"
+      #- "mnist_mse_zero_target"
+      #- "mnist_ce_with_control_alignment"
+      #- "mnist_mse_with_control_alignment"
+      #- "mnist_mse_with_loss_interpolation"
+      #- "mnist_mse_with_random_labels"
+      #- "mnist_mse_with_predictions"
+      #- "mnist_with_targets"
+  full_batch:
+    value: False
+  weight_decay:
+    values:
+      - 0.0
+  weight_decay_1:
+    values:
+      - 0.0
+  weight_decay_2:
+    values:
+      - 0.0
+      #- 0.1 not possible atm because applied to B as well
+  optimizer:
+    value: 'sgd'
+  batch_size:
+    value: 4500
+  tune_for_lr:
+    value: False
+  mode:
+    value: 'interpolate_fa_bp'
+  alpha:
+    values:
+      - 1.0
+      - 0.7
+      - 0.3
+      - 0.0 #is in the otehr sweep
+      #- 0.0
+  architecture:
+    values:
+      - 1
+      - 2
+  epochs:
+    value: 200
+  period:
+    value: -1
+  wandb_project:
+    value: 'weight_init'
+  initializer:
+    value: 'lecun'
+  steps:
+    value: 25
+  compute_alignments: 
+    value : True
+  lam:
+    values:
+      - 1.0
+  jax_seed:
+    values:
+      - 50
+      - 100

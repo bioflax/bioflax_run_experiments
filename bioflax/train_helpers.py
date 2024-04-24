@@ -18,7 +18,7 @@ from .metric_computation import compute_metrics, summarize_metrics_epoch, reorga
 from dataclasses import replace
 
 
-def create_train_state(model, rng, lr, momentum, weight_decay, in_dim, batch_size, seq_len, optimizer, epochs, steps_per_epoch):
+def create_train_state(model, rng, lr, momentum, weight_decay_1, weight_decay_2, in_dim, batch_size, seq_len, optimizer, epochs, steps_per_epoch):
     """
     Initializes the training state using optax
     ...
@@ -41,18 +41,27 @@ def create_train_state(model, rng, lr, momentum, weight_decay, in_dim, batch_siz
     """
     dummy_input = jnp.ones((batch_size, in_dim, seq_len))
     params = model.init(rng, dummy_input)["params"]
+    #optax_transformation_mask = create_mask_dict(params)
+    mask1 = create_mask_dict_layerwise(params, None, 0)#{'RandomDenseLinearInterpolateFABP_0': {'B': False, 'Dense_0': {'bias': True, 'kernel': True}}, 'RandomDenseLinearInterpolateFABP_1': {'B': False, 'Dense_0': {'bias': True, 'kernel': True}}, 'RandomDenseLinearInterpolateFABP_2': {'B': False, 'Dense_0': {'bias': True, 'kernel': True}}, 'RandomDenseLinearInterpolateFABP_1': {'B': False, 'Dense_0': {'bias': False, 'kernel': False}}}
+    mask2 = create_mask_dict_layerwise(params, None, 1)#{'RandomDenseLinearInterpolateFABP_0': {'B': False, 'Dense_0': {'bias': False, 'kernel': False}}, 'RandomDenseLinearInterpolateFABP_1': {'B': False, 'Dense_0': {'bias': False, 'kernel': False}}, 'RandomDenseLinearInterpolateFABP_2': {'B': False, 'Dense_0': {'bias': False, 'kernel': False}}, 'RandomDenseLinearInterpolateFABP_1': {'B': False, 'Dense_0': {'bias': True, 'kernel': True}}}
+    mask3 = create_mask_dict_layerwise(params, None, 2)
+    print(mask1)
+
     cosine_fn = optax.cosine_decay_schedule(init_value=lr, decay_steps=epochs * steps_per_epoch)
     sgd_optimizer = optax.sgd(learning_rate=lr, momentum=momentum)
     adam = optax.adam(learning_rate=lr)
+
     if (optimizer == 'sgd'):
-        tx = sgd_optimizer  # optax.chain(
-        # sgd_optimizer,
-        # optax.add_decayed_weights(weight_decay)
-        # )
+        tx = optax.chain(
+            sgd_optimizer,
+            optax.add_decayed_weights(weight_decay_1, mask = mask1),
+            optax.add_decayed_weights(weight_decay_1, mask = mask2),
+            optax.add_decayed_weights(weight_decay_2, mask = mask3)
+        )
     elif (optimizer == 'adam'):
         tx = optax.chain(
             adam,
-            optax.add_decayed_weights(weight_decay)
+            optax.add_decayed_weights(weight_decay, mask = optax_transformation_mask)
         )
     else:
         print("Optimzer not supported, fallback sgd was used")
@@ -63,21 +72,78 @@ def create_train_state(model, rng, lr, momentum, weight_decay, in_dim, batch_siz
     return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
 
-@partial(jax.jit, static_argnums=(4))
-def compute_bp_grads(state, state_bp, inputs, labels, loss_function):
+@partial(jax.jit, static_argnums=(4, 5))
+def compute_bp_grads(state, state_bp, inputs, labels, loss_function, alpha):
 
     def loss_comp(params):
                     logits = state_bp.apply_fn({"params": params}, inputs)
-                    loss = get_loss(loss_function, logits, labels)
+                    loss = get_loss(loss_function, logits, labels, alpha)
                     return loss
     
     _, grads_ = jax.value_and_grad(loss_comp)(
                         reorganize_dict({"params": state.params})["params"]
                     )
     return grads_
+#this one allows layerwise control of the mask but might only work for a randomdenseinterpolate one
+# index muss von aussen mit None aufgerufen werden
+def create_mask_dict_layerwise(input_dict, index, active_index):
+    """
+    Recursively creates a mask dictionary that matches the structure of the input dictionary.
+    Only the 'bias' and 'kernel' entries for the specific 'RandomDenseInterpolateFA' layer
+    indicated by 'active_index' will be set to True; all other entries are set to False.
 
+    Parameters:
+        input_dict (dict): The input dictionary with nested structure containing 'B', 'bias', 'kernel'.
+        index (int or None): Current index being processed, used to match against 'active_index'.
+        active_index (int): The index of the layer that should have True for 'bias' and 'kernel'.
 
-def train_epoch(model, state, state_bp, trainloader, loss_function, n, mode, compute_alignments, lam, reset, p, key_mask, use_wandb, prev_loss, key_power_it, steps, full_batch):
+    Returns:
+        dict: A mask dictionary with structured True or False values as described.
+    """
+    mask_dict = {}
+    for key, value in input_dict.items():
+        if isinstance(value, dict):  # If the value is another dictionary, recurse
+            # Determine if this dictionary key matches the pattern of interest and extract its index
+            if key.startswith('RandomDenseLinearInterpolateFABP_'):
+                current_index = int(key.split('_')[-1])
+            else:
+                current_index = index  # Continue with the current index if not a specific layer key
+
+            # Recurse with the current_index updated if this is a layer key
+            mask_dict[key] = create_mask_dict_layerwise(value, current_index, active_index)
+        else:  # It's a leaf node
+            if key == 'B':
+                mask_dict[key] = False
+            elif key in ['bias', 'kernel']:
+                # Set to True only if the current layer's index matches the active_index
+                mask_dict[key] = (index == active_index)
+
+    return mask_dict
+
+def create_mask_dict(input_dict):
+    """
+    Recursively creates a mask dictionary that matches the structure of the input dictionary.
+    Each 'B' entry will have a mask value of False, and 'bias' or 'kernel' entries will have True.
+
+    Parameters:
+        input_dict (dict): The input dictionary with nested structure containing 'B', 'bias', and 'kernel'.
+
+    Returns:
+        dict: A mask dictionary with the same structure where each 'B' is marked False and 'bias'/'kernel' True.
+    """
+    mask_dict = {}
+    for key, value in input_dict.items():
+        if isinstance(value, dict):  # If the value is another dictionary, recurse
+            mask_dict[key] = create_mask_dict(value)
+        else:  # It's a leaf node, decide the mask based on the key
+            if key == 'B':
+                mask_dict[key] = False
+            elif key in ['bias', 'kernel']:
+                mask_dict[key] = True
+
+    return mask_dict
+
+def train_epoch(model, state, state_bp, trainloader, loss_function, n, mode, compute_alignments, lam, reset, p, key_mask, use_wandb, prev_loss, key, steps, full_batch, grads_minus_mode, alpha):
     """
     Training function for an epoch that loops over batches.
     ...
@@ -115,82 +181,110 @@ def train_epoch(model, state, state_bp, trainloader, loss_function, n, mode, com
     norms_Bs_per_layer = []
     norms_proj_grad = []
 
+    
 
     for i, batch in enumerate(tqdm(trainloader)):
         if full_batch  and i == 0 or not(full_batch):
+            key, key_power_it, key_random_labels = jax.random.split(key, num=3)
             inputs, labels = prep_batch(batch)
+            if loss_function == "MSE_with_random_labels":
+                labels = jax.random.normal(key_random_labels, jax.nn.one_hot(labels, num_classes=10).shape)
+            elif loss_function == "CE_with_random_labels_0_pred":
+                labels = jax.random.randint(key_random_labels, labels.shape, 0, 10)
 
-            if compute_alignments:
-                if mode != "bp":
-                    grads_true = compute_bp_grads(
-                        state, state_bp, inputs, labels, loss_function)
+            true_loss_fn = loss_function
+
+            if loss_function in ["CE_interpolate_loss_alignment", "CE_with_control_alignment"]:
+                true_loss_fn = "CE"
+
+            if i % 6 == 0:
+                if compute_alignments:
+                    
+                    if mode != "bp":
+                        grads_true = compute_bp_grads(
+                            state, state_bp, inputs, labels, true_loss_fn, alpha)
+                if loss_function == "MSE_interpolate_loss_alignment" or loss_function == "MSE_with_control_alignment":
+                    loss_true, grads_true = loss_comp(state, inputs, labels,"MSE_with_integer_labels")
+                    loss_align = loss_comp(state, inputs, labels, "MSE_with_zero_pred_correlated_labels") 
+                    
+                elif loss_function in ["CE_interpolate_loss_alignment", "CE_with_control_alignment"]:
+                    loss_true, grads_true_fa = loss_comp(state, inputs, labels, true_loss_fn)
+                    loss_align = loss_comp(state, inputs, labels, "CE_with_random_labels_0_pred")
             
-            state, loss, grads_est = train_step(state, inputs, labels, loss_function)
-
+            state, loss, grads_est = train_step(state, inputs, labels, loss_function, grads_true, grads_minus_mode, alpha)
+                
+            
             batch_losses.append(loss)
             
-            if compute_alignments:
-                (
-                    bias_al_per_layer,
-                    wandb_grad_al_per_layer,
-                    wandb_grad_al_total,
-                    weight_al_per_layer,
-                    rel_norm_grads,
-                    norm_true,
-                    norm_est, 
-                    norm_kernels_per_layer,
-                    norm_Bs_per_layer,
-                    norm_proj_grad
-                ) = compute_metrics(state, grads_true, grads_est, mode, lam)
-                bias_als_per_layer.append(bias_al_per_layer)
-                wandb_grad_als_per_layer.append(wandb_grad_al_per_layer)
-                wandb_grad_als_total.append(wandb_grad_al_total)
-                weight_als_per_layer.append(weight_al_per_layer)
-                rel_norms_grads.append(rel_norm_grads)
-                norms_true.append(norm_true)
-                norms_est.append(norm_est)
-                norms_kernels_per_layer.append(norm_kernels_per_layer)
-                norms_Bs_per_layer.append(norm_Bs_per_layer)
-                norms_proj_grad.append(norm_proj_grad)
+            #atm tracking only in the first epoch and second last
+            if i % 6 == 0:
+                if loss_function in ["CE_interpolate_loss_alignment"]:
+                    grads_est = grads_true_fa
+                if compute_alignments:
+                    (
+                        bias_al_per_layer,
+                        wandb_grad_al_per_layer,
+                        wandb_grad_al_total,
+                        weight_al_per_layer,
+                        rel_norm_grads,
+                        norm_true,
+                        norm_est, 
+                        norm_kernels_per_layer,
+                        norm_Bs_per_layer,
+                        norm_proj_grad
+                    ) = compute_metrics(state, grads_true, grads_est, mode, lam)
+                    bias_als_per_layer.append(bias_al_per_layer)
+                    wandb_grad_als_per_layer.append(wandb_grad_al_per_layer)
+                    wandb_grad_als_total.append(wandb_grad_al_total)
+                    weight_als_per_layer.append(weight_al_per_layer)
+                    rel_norms_grads.append(rel_norm_grads)
+                    norms_true.append(norm_true)
+                    norms_est.append(norm_est)
+                    norms_kernels_per_layer.append(norm_kernels_per_layer)
+                    norms_Bs_per_layer.append(norm_Bs_per_layer)
+                    norms_proj_grad.append(norm_proj_grad)
 
 
-                rng, key_power_it = jax.random.split(key_power_it, num=2)
+                    rng, key_power_it = jax.random.split(key_power_it, num=2)
+                    #if i == 0:
+                    #    sharpness = power_iteration(state, state_bp, inputs, labels, loss_function, rng, steps, alpha)
+                    #
+                    #    sharpness_collected.append(sharpness)
+
                 if i == 0:
-                    sharpness = power_iteration(state, state_bp, inputs, labels, loss_function, rng, steps)
-
-                    sharpness_collected.append(sharpness)
-
-            if i == 0:
-                curr_rate=batch_losses[-1]/prev_loss
-            if i > 0:
-                curr_rate = batch_losses[-1]/batch_losses[-2]
-                conv_rates.append(curr_rate)
-            neg_rate = 1-curr_rate
-            metrics={
-                "Training loss": loss,
-                "Conv_Rate": curr_rate,
-                "1-Conv_Rate": neg_rate,
-                "Rel_norm_grads": rel_norm_grads,
-                "Gradient alignment": wandb_grad_al_total,
-                "Norm true gradient": norm_true,
-                "Norm est. gradient": norm_est,
-                "Norm of est_gradient projected on plane orthogonal to true gradient": norm_proj_grad
-            }
-            if i == 0:
-                metrics["Sharpness"] = sharpness
-            for i, al in enumerate(bias_al_per_layer):
-                    metrics[f"Alignment bias gradient layer {i}"] = al
-            for i, al in enumerate(wandb_grad_al_per_layer):
-                metrics[f"Alignment gradient layer {i}"] = al
-            if mode == "fa" or mode == "kp" or mode == "interpolate_fa_bp":
-                for i, al in enumerate(weight_al_per_layer):
-                    metrics[f"Alignment layer {i}"] = al
-                for i, norm in enumerate(norm_kernels_per_layer):
-                    metrics[f"Norm layer {i}"] = norm
-                for i, norm in enumerate(norm_Bs_per_layer):
-                    metrics[f"Norm B layer {i}"] = norm
-            if use_wandb: 
-                wandb.log(metrics)
+                    curr_rate=batch_losses[-1]/prev_loss
+                if i > 0:
+                    curr_rate = batch_losses[-1]/batch_losses[-2]
+                    conv_rates.append(curr_rate)
+                neg_rate = 1-curr_rate
+                metrics={
+                    "Training loss": loss,
+                    "Conv_Rate": curr_rate,
+                    "1-Conv_Rate": neg_rate,
+                    "Rel_norm_grads": rel_norm_grads,
+                    "Gradient alignment": wandb_grad_al_total,
+                    "Norm true gradient": norm_true,
+                    "Norm est. gradient": norm_est,
+                    "Norm of est_gradient projected on plane orthogonal to true gradient": norm_proj_grad
+                }
+                if loss_function in ["MSE_interpolate_loss_alignment", "MSE_with_control_alignment", "CE_with_control_alignment", "CE_interpolate_loss_alignment"]:
+                    metrics["True loss"] = loss_true
+                    metrics["Loss aligning force"] = loss_align
+                #if i == 0:
+                #    metrics["Sharpness"] = sharpness
+                for i, al in enumerate(bias_al_per_layer):
+                        metrics[f"Alignment bias gradient layer {i}"] = al
+                for i, al in enumerate(wandb_grad_al_per_layer):
+                    metrics[f"Alignment gradient layer {i}"] = al
+                if mode == "fa" or mode == "kp" or mode == "interpolate_fa_bp":
+                    for i, al in enumerate(weight_al_per_layer):
+                        metrics[f"Alignment layer {i}"] = al
+                    for i, norm in enumerate(norm_kernels_per_layer):
+                        metrics[f"Norm layer {i}"] = norm
+                    for i, norm in enumerate(norm_Bs_per_layer):
+                        metrics[f"Norm B layer {i}"] = norm
+                if use_wandb: 
+                    wandb.log(metrics)
         
             if full_batch:
                 return state, jnp.mean(jnp.array(batch_losses)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
@@ -238,6 +332,16 @@ def train_epoch(model, state, state_bp, trainloader, loss_function, n, mode, com
     else:
         return state, jnp.mean(jnp.array(batch_losses)), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 
+@partial(jax.jit, static_argnames=("loss_function"))
+def loss_comp(state, inputs, labels, loss_function):
+    def loss_fn(params):
+        logits = state.apply_fn({"params": params}, inputs)
+        loss = get_loss(loss_function, logits, labels, 0)
+        return loss
+    
+    loss, grad_est = jax.value_and_grad(loss_fn)(state.params)
+    return loss, grad_est
+
 # the lambda used here is in double use with interpolation which needs to be corrected
 def interpolate_B_with_kernel(d, lam, p, key):
     """Replace 'B' with 'kernel' in each 'RandomDenseLinearFA_i' layer."""
@@ -254,7 +358,7 @@ def interpolate_B_with_kernel(d, lam, p, key):
     return new_dict
 
 @partial(jax.jit, static_argnames=("steps", "loss_function"))
-def power_iteration(state, state_bp, inputs, labels, loss_function, rng, steps):
+def power_iteration(state, state_bp, inputs, labels, loss_function, rng, steps, alpha):
     params = reorganize_dict({"params": state.params})["params"]
     #print(params)
     #print(state.params)
@@ -265,7 +369,7 @@ def power_iteration(state, state_bp, inputs, labels, loss_function, rng, steps):
 
     def loss_fn(p):
         logits = state_bp.apply_fn({"params": safe_unravel(p)}, inputs)
-        loss = get_loss(loss_function, logits, labels)
+        loss = get_loss(loss_function, logits, labels, alpha)
         return loss
     
 
@@ -309,8 +413,8 @@ def fa_to_reset(d):
             new_dict[key] = value
     return new_dict
 
-@partial(jax.jit, static_argnums=(3))
-def train_step(state, inputs, labels, loss_function):
+@partial(jax.jit, static_argnums=(3, 5, 6))
+def train_step(state, inputs, labels, loss_function, grads_true, grad_minus_mode, alpha):
     """
     Performs a single training step given a batch of data
     ...
@@ -328,15 +432,64 @@ def train_step(state, inputs, labels, loss_function):
 
     def loss_fn(params):
         logits = state.apply_fn({"params": params}, inputs)
-        loss = get_loss(loss_function, logits, labels)
+        loss = get_loss(loss_function, logits, labels, alpha)
         return loss
 
-    loss, grads = jax.value_and_grad(loss_fn)(state.params)
-    state = state.apply_gradients(grads=grads)
-    return state, loss, grads
+    
 
+    loss, grads_est = jax.value_and_grad(loss_fn)(state.params)
+    if grad_minus_mode:
+        #print(f"Grads true: {grads_true}")
+        #print(f"Grads est: {grads_est}")
+        grads_est = subtract_grads(grads_true, grads_est)
+        #print(f"Grads est after subtraction: {grads_est}")
 
-def get_loss(loss_function, logits, labels, rng, num_classes=10):
+    state = state.apply_gradients(grads=grads_est)
+    return state, loss, grads_est
+
+def subtract_grads(grads_true, grads_est):
+    """
+    Subtracts the gradients of 'bias' and 'kernel' in layers from grads_true from those
+    in grads_est. Specifically, it subtracts the 'Dense_i' gradients in grads_true from 
+    'Dense_0' within 'RandomDenseLinearInterpolateFABP_i' in grads_est. It also ensures
+    that the matrix 'B' in 'RandomDenseLinearInterpolateFABP_i' is preserved in the output.
+
+    Parameters:
+        grads_true (dict): Dictionary containing true gradients with keys like 'Dense_i'.
+        grads_est (dict): Dictionary containing estimated gradients with keys structured
+                          as 'RandomDenseLinearInterpolateFABP_i', which further contains
+                          'Dense_0' with 'bias' and 'kernel', and a matrix 'B'.
+
+    Returns:
+        dict: A new dictionary containing the subtracted gradients and preserved matrices structured
+              similarly to grads_est.
+    """
+    result_grads = {}
+
+    # Iterate over the estimated gradients
+    for est_key, est_value in grads_est.items():
+        if 'RandomDenseLinearInterpolateFABP_' in est_key:
+            # Find the corresponding index
+            index = est_key.split('_')[-1]
+            true_key = f'Dense_{index}'
+            result_grads[est_key] = {}
+
+            # Copy the 'B' matrix if present
+            if 'B' in est_value:
+                result_grads[est_key]['B'] = est_value['B']
+
+            # Check for the 'Dense_0' key and corresponding 'Dense_i' in grads_true
+            if 'Dense_0' in est_value and true_key in grads_true:
+                result_grads[est_key]['Dense_0'] = {}
+
+                # Perform subtraction for 'bias' and 'kernel'
+                for param in ['bias', 'kernel']:
+                    if param in est_value['Dense_0'] and param in grads_true[true_key]:
+                        result_grads[est_key]['Dense_0'][param] = grads_est[est_key]['Dense_0'][param] - grads_true[true_key][param]
+
+    return result_grads
+
+def get_loss(loss_function, logits, labels, alpha, num_classes=10):
     """
     Returns the loss for network outputs and labels
     ...
@@ -362,6 +515,37 @@ def get_loss(loss_function, logits, labels, rng, num_classes=10):
         one_hot_labels = jax.nn.one_hot(labels, num_classes)
         # Compute MSE loss using the one-hot encoded labels
         return optax.l2_loss(jnp.squeeze(logits), one_hot_labels).mean()
+    elif loss_function == "MSE_with_random_labels":
+        return optax.l2_loss(jnp.squeeze(logits), jnp.squeeze(labels)).mean()
+    elif loss_function == "MSE_with_predictions":
+        return optax.l2_loss(jnp.squeeze(logits), jnp.squeeze(jnp.zeros_like(logits))).mean()
+    elif loss_function == "MSE_with_zero_pred_correlated_targets":
+        return optax.l2_loss(jnp.squeeze(logits) - jax.lax.stop_gradient(jnp.squeeze(logits)), jnp.squeeze(labels)).mean()
+    elif loss_function == "MSE_with_zero_pred_correlated_labels":
+        return optax.l2_loss(jnp.squeeze(logits) - jax.lax.stop_gradient(jnp.squeeze(logits)), jax.nn.one_hot(labels, num_classes)).mean()
+    elif loss_function == "MSE_interpolate_loss_alignment":
+        return alpha * optax.l2_loss(jnp.squeeze(logits), jax.nn.one_hot(labels, 10)).mean() + \
+            (1-alpha)*optax.l2_loss(jnp.squeeze(logits) - jax.lax.stop_gradient(jnp.squeeze(logits)), jax.nn.one_hot(labels, num_classes)).mean()
+    elif loss_function == "CE_interpolate_loss_alignment":
+        return alpha * optax.softmax_cross_entropy_with_integer_labels(
+            logits=jnp.squeeze(logits), labels=labels).mean() + \
+            (1-alpha)*optax.softmax_cross_entropy_with_integer_labels(
+            logits=jnp.squeeze(logits-jax.lax.stop_gradient(logits)), labels=labels).mean()
+    elif loss_function == "CE_with_control_alignment":
+        return optax.softmax_cross_entropy_with_integer_labels(jnp.squeeze(logits), labels).mean() + \
+            alpha*optax.softmax_cross_entropy_with_integer_labels(jnp.squeeze(logits) - jax.lax.stop_gradient(jnp.squeeze(logits)), labels).mean()
+    elif loss_function == "MSE_with_control_alignment":
+        return optax.l2_loss(jnp.squeeze(logits), jax.nn.one_hot(labels, 10)).mean() + \
+            alpha*optax.l2_loss(jnp.squeeze(logits) - jax.lax.stop_gradient(jnp.squeeze(logits)), jax.nn.one_hot(labels, num_classes)).mean()
+    elif loss_function == "CE_with_random_labels_0_pred":
+        return optax.softmax_cross_entropy_with_integer_labels(
+            logits=jnp.squeeze(logits-jax.lax.stop_gradient(logits)), labels=labels).mean()
+    elif loss_function == "MSE_with_zero_targets":
+        return optax.l2_loss(jnp.squeeze(logits), jnp.squeeze(jnp.zeros_like(logits))).mean()
+    elif loss_function == "CE_with_label_zero":
+        return optax.softmax_cross_entropy_with_integer_labels(
+            logits=jnp.squeeze(logits), labels=jnp.zeros_like(labels, dtype=jnp.int32)).mean()
+
 
 
 def prep_batch(batch):
@@ -398,8 +582,8 @@ def compute_accuracy(logits, label):
     return jnp.mean(jnp.argmax(logits) == label)
 
 
-@partial(jax.jit, static_argnums=(3))
-def eval_step(inputs, labels, state, loss_function):
+@partial(jax.jit, static_argnums=(3, 4))
+def eval_step(inputs, labels, state, loss_function, alpha):
     """
     Performs a single evaluation step given a batch of data
     ...
@@ -415,14 +599,14 @@ def eval_step(inputs, labels, state, loss_function):
         identifier to select loss function
     """
     logits = state.apply_fn({"params": state.params}, inputs)
-    losses = get_loss(loss_function, logits, labels)
+    losses = get_loss(loss_function, logits, labels, alpha)
     accs = 0
-    if loss_function == "CE" or loss_function == "MSE_with_integer_labels":
+    if loss_function in ["CE", "MSE_with_integer_labels", "MSE_interpolate_loss_alignment", "MSE_with_control_alignment", "CE_interpolate_loss_alignment", "CE_with_control_alignment", "CE_with_random_labels_0_pred"]:
         accs = compute_accuracy((jnp.squeeze(logits)), labels)
     return jnp.mean(losses), accs, logits
 
 
-def validate(state, testloader, seq_len, in_dim, loss_function):
+def validate(state, testloader, seq_len, in_dim, loss_function, alpha):
     """
     Validation function that loops over batches
     ...
@@ -443,13 +627,13 @@ def validate(state, testloader, seq_len, in_dim, loss_function):
 
     for batch in tqdm(testloader):
         inputs, labels = prep_batch(batch)
-        loss, acc, _ = eval_step(inputs, labels, state, loss_function)
+        loss, acc, _ = eval_step(inputs, labels, state, loss_function, alpha)
         losses.append(loss)
-        if loss_function == "CE" or loss_function == "MSE_with_integer_labels":
+        if loss_function in ["CE", "MSE_with_integer_labels", "MSE_interpolate_loss_alignment", "MSE_with_control_alignment", "CE_interpolate_loss_alignment", "CE_with_control_alignment", "CE_with_random_labels_0_pred"]:
             accuracies.append(jnp.mean(acc))
 
     acc_mean = 10000000.0
-    if loss_function == "CE" or loss_function == "MSE_with_integer_labels":
+    if loss_function in ["CE", "MSE_with_integer_labels", "MSE_interpolate_loss_alignment", "MSE_with_control_alignment", "CE_interpolate_loss_alignment", "CE_with_control_alignment", "CE_with_random_labels_0_pred"]:
         acc_mean = jnp.mean(jnp.array([accuracies]))
     return jnp.mean(jnp.array([losses])), acc_mean
 

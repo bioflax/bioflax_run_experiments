@@ -13,9 +13,9 @@ def train(args):
     Main function for training and eveluating a biomodel. Training and evaluation set up by
     arguments passed in args.
 
-    Periodic Resetting allows to periodically reset the weights weights on the backward path to the current weights on the forward path. Do so by setting 
-    periodically to true and specifying the period value. The argument probability (later in code p) allows to control the probability of a specific weight b
-    being reset where the probability is input to a bernoulli distribution for each matrix element. 
+    a.) Selecting the respective dataset is chosen various forms of random error stuff can be done here. 
+
+    b.) Can run in gradient estimator - true gradient mode
 
     Moreover sharpness is tracked now. args.steps computes the number of steps in the power iteration.
 
@@ -42,7 +42,8 @@ def train(args):
     teacher_act = args.teacher_act
     lr = args.lr
     momentum = args.momentum
-    weight_decay = args.weight_decay
+    weight_decay_1 = args.weight_decay_1
+    weight_decay_2 = args.weight_decay_2
     plot = args.plot
     compute_alignments = args.compute_alignments
     project = args.wandb_project
@@ -62,6 +63,8 @@ def train(args):
     freeze = args.freeze
     steps = args.steps
     full_batch = args.full_batch
+    grads_minus_mode = args.grads_minus_mode
+    alpha = args.alpha
 
     if mode == 'bp':
         compute_alignments = False
@@ -70,10 +73,64 @@ def train(args):
         task = "classification"
         loss_fn = "CE"
         output_features = 10
+    elif dataset == "mnnist_with_targets": # is MSE
+        task = "classification"
+        loss_fn = "MSE_with_zero_pred_correlated_targets"
+        output_features = 10
+    elif dataset == "mnist_mse_with_labels":
+        dataset = "mnist"
+        task = "classification"
+        loss_fn = "MSE_with_zero_pred_correlated_labels"
+        output_features = 10
     elif dataset == "mnist_with_mse":
         task = "classification"
         dataset = "mnist"
         loss_fn = "MSE_with_integer_labels"
+        output_features = 10
+    elif dataset == "mnist_mse_with_random_labels":
+        task = "classification"
+        dataset = "mnist"
+        loss_fn = "MSE_with_random_labels"
+        output_features = 10
+    elif dataset == "mnist_mse_with_predictions":
+        task = "classification"
+        dataset = "mnist"
+        loss_fn = "MSE_with_predictions"
+        output_features = 10
+    elif dataset == "mnist_ce_with_random_labels_0_pred":
+        task = "classification"
+        dataset = "mnist"
+        loss_fn = "CE_with_random_labels_0_pred"
+        output_features = 10
+    elif dataset == "mnist_mse_with_loss_interpolation":
+        task = "classification"
+        dataset = "mnist"
+        loss_fn = "MSE_interpolate_loss_alignment"
+        output_features = 10
+    elif dataset == "mnist_mse_with_control_alignment":
+        task = "classification"
+        dataset = "mnist"
+        loss_fn = "MSE_with_control_alignment"
+        output_features = 10
+    elif dataset == "mnist_ce_with_loss_interpolation":
+        task = "classification"
+        dataset = "mnist"
+        loss_fn = "CE_interpolate_loss_alignment"
+        output_features = 10
+    elif dataset == "mnist_ce_with_control_alignment":
+        task = "classification"
+        dataset = "mnist"
+        loss_fn = "CE_with_control_alignment"
+        output_features = 10
+    elif dataset == "mnist_mse_zero_target":
+        task = "classification"
+        dataset = "mnist"
+        loss_fn = "MSE_with_zero_targets"
+        output_features = 10
+    elif dataset == "mnist_ce_with_label_zero":
+        task = "classification"
+        dataset = "mnist"
+        loss_fn = "CE_with_label_zero"
         output_features = 10
     else:
         task = "regression"
@@ -103,14 +160,14 @@ def train(args):
         activations = ['relu', 'relu']
         args.activations = activations
     elif architecture == 3:
-        hidden_layers = [500, 500]
+        hidden_layers = [5, 5]
         args.hidden_layers = hidden_layers
         activations = ['relu', 'relu']
         args.activations = activations
     elif architecture == 1:
-        hidden_layers = [5, 5]
+        hidden_layers = [500, 500]
         args.hidden_layers = hidden_layers
-        activations = ['relu', 'relu']
+        activations = ['identity', 'identity']
         args.activations = activations
     # elif architecture == 1:
     #     hidden_layers = [500, 500]
@@ -230,7 +287,8 @@ def train(args):
                 rng=key_model,
                 lr=rate,  # scheduler, #relevant change at the moment
                 momentum=momentum,
-                weight_decay=weight_decay,
+                weight_decay_1=weight_decay_1,
+                weight_decay_2=weight_decay_2,
                 in_dim=in_dim,
                 batch_size=batch_size,
                 seq_len=seq_len,
@@ -264,7 +322,8 @@ def train(args):
         rng=key_model,
         lr=lr,  # scheduler, #relevant change at the moment
         momentum=momentum,
-        weight_decay=weight_decay,
+        weight_decay_1=weight_decay_1,
+        weight_decay_2=weight_decay_2,
         in_dim=in_dim,
         batch_size=batch_size,
         seq_len=seq_len,
@@ -278,7 +337,8 @@ def train(args):
         rng=key_model_bp,
         lr=lr,  # scheduler, #relevant change at the moment
         momentum=momentum,
-        weight_decay=weight_decay,
+        weight_decay_1=weight_decay_1,
+        weight_decay_2=weight_decay_2,
         in_dim=in_dim,
         batch_size=batch_size,
         seq_len=seq_len,
@@ -302,8 +362,11 @@ def train(args):
         100000000.0, 0  # This best loss is val_loss
     prev_loss=2.
     for i, epoch in enumerate(range(epochs)):  # (args.epochs):
+        #if i >= 20:
+        #    alpha = 1.0
+        
         #print(f"[*] Starting training epoch {epoch + 1}...")
-        key_mask, key, key_power_it = random.split(key, num=3)
+        key_mask, key, key_epoch = random.split(key, num=3)
         # print(state.step)
         # lr_ = scheduler(state.step)
         # HACK: is not used can be used to control how often to compute the sharpness
@@ -336,7 +399,7 @@ def train(args):
             avg_norm_proj_grad,
 
         ) = train_epoch(model, state, state_bp, trainloader, 
-                        loss_fn, n, mode, compute_alignments, lam, reset, p, key_mask, use_wandb, prev_loss, key_power_it, steps, full_batch)
+                        loss_fn, n, mode, compute_alignments, lam, reset, p, key_mask, use_wandb, prev_loss, key_epoch, steps, full_batch, grads_minus_mode, alpha)
                         #, state_reset, trainloader, loss_fn, n, mode, compute_alignments, lam, reset)
         if (i > 0):
             avg_conv_rate = train_loss/prev_loss
@@ -344,14 +407,15 @@ def train(args):
         convergence_metric = avg_wandb_grad_al_total * avg_rel_norm_grads
         cos_squared = avg_wandb_grad_al_total*avg_wandb_grad_al_total
 
+        #HACK: Comment back in if you want the accuracies
         if valloader is not None:
             #print(f"[*] Running Epoch {epoch + 1} Validation...")
             val_loss, val_acc = validate(
-                state, valloader, seq_len, in_dim, loss_fn)
+                state, valloader, seq_len, in_dim, loss_fn, alpha)
 
             #print(f"[*] Running Epoch {epoch + 1} Test...")
             test_loss, test_acc = validate(
-                state, testloader, seq_len, in_dim, loss_fn)
+                state, testloader, seq_len, in_dim, loss_fn, alpha)
 
             #print(f"\n=>> Epoch {epoch + 1} Metrics ===")
             #print(
@@ -367,7 +431,7 @@ def train(args):
             # Use test set as validation set
             #print(f"[*] Running Epoch {epoch + 1} Test...")
             val_loss, val_acc = validate(
-                state, testloader, seq_len, in_dim, loss_fn)
+                state, testloader, seq_len, in_dim, loss_fn, alpha)
 
             #print(f"\n=>> Epoch {epoch + 1} Metrics ===")
             #print(
@@ -418,7 +482,8 @@ def train(args):
             metrics["Validation loss"] = val_loss
             if task == "classification":
                 metrics["Validation accuracy"] = val_acc
-        wandb.log(metrics)
+        if use_wandb:
+            wandb.log(metrics)
         # if compute_alignments:
         #     metrics["lambda"] = lam
         #     metrics["Relative norms gradients"] = avg_rel_norm_grads
@@ -438,15 +503,14 @@ def train(args):
         #     if mode == "fa" or mode == "kp" or mode == "interpolate_fa_bp":
         #         for i, al in enumerate(avg_weight_al_per_layer):
         #             metrics[f"Alignment layer {i}"] = al
-
-        if use_wandb:
-            wandb.log(metrics)
-            wandb.run.summary["Best val loss"] = best_loss
-            wandb.run.summary["Best epoch"] = best_epoch
-            wandb.run.summary["Best test loss"] = best_test_loss
-            if task == "classification":
-                wandb.run.summary["Best test accuracy"] = best_test_acc
-                wandb.run.summary["Best val accuracy"] = best_acc
+        # if use_wandb:
+        #     wandb.log(metrics)
+        #     wandb.run.summary["Best val loss"] = best_loss
+        #     wandb.run.summary["Best epoch"] = best_epoch
+        #     wandb.run.summary["Best test loss"] = best_test_loss
+        #     if task == "classification":
+        #         wandb.run.summary["Best test accuracy"] = best_test_acc
+        #         wandb.run.summary["Best val accuracy"] = best_acc
 
     # print(lr)
     if plot:
