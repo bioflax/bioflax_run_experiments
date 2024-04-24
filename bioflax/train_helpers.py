@@ -45,7 +45,7 @@ def create_train_state(model, rng, lr, momentum, weight_decay_1, weight_decay_2,
     mask1 = create_mask_dict_layerwise(params, None, 0)#{'RandomDenseLinearInterpolateFABP_0': {'B': False, 'Dense_0': {'bias': True, 'kernel': True}}, 'RandomDenseLinearInterpolateFABP_1': {'B': False, 'Dense_0': {'bias': True, 'kernel': True}}, 'RandomDenseLinearInterpolateFABP_2': {'B': False, 'Dense_0': {'bias': True, 'kernel': True}}, 'RandomDenseLinearInterpolateFABP_1': {'B': False, 'Dense_0': {'bias': False, 'kernel': False}}}
     mask2 = create_mask_dict_layerwise(params, None, 1)#{'RandomDenseLinearInterpolateFABP_0': {'B': False, 'Dense_0': {'bias': False, 'kernel': False}}, 'RandomDenseLinearInterpolateFABP_1': {'B': False, 'Dense_0': {'bias': False, 'kernel': False}}, 'RandomDenseLinearInterpolateFABP_2': {'B': False, 'Dense_0': {'bias': False, 'kernel': False}}, 'RandomDenseLinearInterpolateFABP_1': {'B': False, 'Dense_0': {'bias': True, 'kernel': True}}}
     mask3 = create_mask_dict_layerwise(params, None, 2)
-    print(mask1)
+    #print(mask1)
 
     cosine_fn = optax.cosine_decay_schedule(init_value=lr, decay_steps=epochs * steps_per_epoch)
     sgd_optimizer = optax.sgd(learning_rate=lr, momentum=momentum)
@@ -211,7 +211,7 @@ def train_epoch(model, state, state_bp, trainloader, loss_function, n, mode, com
                     loss_true, grads_true_fa = loss_comp(state, inputs, labels, true_loss_fn)
                     loss_align = loss_comp(state, inputs, labels, "CE_with_random_labels_0_pred")
             
-            state, loss, grads_est = train_step(state, inputs, labels, loss_function, grads_true, grads_minus_mode, alpha)
+            state, loss, loss_fa, grads_est, grads_last_layer = train_step(state, inputs, labels, loss_function, grads_true, grads_minus_mode, alpha)
                 
             
             batch_losses.append(loss)
@@ -434,10 +434,16 @@ def train_step(state, inputs, labels, loss_function, grads_true, grad_minus_mode
         logits = state.apply_fn({"params": params}, inputs)
         loss = get_loss(loss_function, logits, labels, alpha)
         return loss
-
     
+    def loss_fn_true(params):
+        logits = state.apply_fn({"params": params}, inputs)
+        loss = get_loss("CE", logits, labels, alpha)
+        return loss
+
+    loss_fa, grads_last_layer = jax.value_and_grad(loss_fn_true)(state.params)
 
     loss, grads_est = jax.value_and_grad(loss_fn)(state.params)
+    grads_est["RandomDenseLinearInterpolateFABP_2"] = grads_last_layer["RandomDenseLinearInterpolateFABP_2"]
     if grad_minus_mode:
         #print(f"Grads true: {grads_true}")
         #print(f"Grads est: {grads_est}")
@@ -445,7 +451,7 @@ def train_step(state, inputs, labels, loss_function, grads_true, grad_minus_mode
         #print(f"Grads est after subtraction: {grads_est}")
 
     state = state.apply_gradients(grads=grads_est)
-    return state, loss, grads_est
+    return state, loss, loss_fa, grads_est, grads_last_layer
 
 def subtract_grads(grads_true, grads_est):
     """
