@@ -41,7 +41,7 @@ def create_dataset(seed, batch_size, dataset, val_split, input_dim, output_dim, 
         return create_mnist_dataset(seed, batch_size, val_split)
     elif (dataset == "mnist_with_targets"):
         return create_mnist_dataset_targets(seed, batch_size, val_split)
-    elif (dataset == "teacher" or dataset == "sinreg"):
+    elif (dataset in ["sinreg", "teaher", "autoencoder"]):
         return create_random_dataset(seed, batch_size, val_split, input_dim, output_dim, L, train_set_size, test_set_size, dataset, teacher_act)
     else:
         raise ValueError("Unknown dataset")
@@ -202,14 +202,14 @@ def create_random_dataset(seed, batch_size, val_split, input_dim, output_dim, L,
         model = BatchTeacher(features=d_output, activation=teacher_act)
         params = model.init(model_rng, jnp.ones(
             (batch_size, d_input, L)))['params']
-    elif (dataset == "sinreg"):
+    else:
         model = None
         params = None
 
     train_dataset = generate_sample_set(
-        model, params, train_rng, batch_size, d_input, L, train_set_size)
+        model, params, train_rng, batch_size, d_input, L, train_set_size, dataset)
     test_dataset = generate_sample_set(
-        model, params, test_rng, batch_size, d_input, L, test_set_size)
+        model, params, test_rng, batch_size, d_input, L, test_set_size, dataset)
 
     train_loader, val_loader, test_loader = create_loaders(
         train_dataset, test_dataset, seed, val_split, batch_size)
@@ -262,7 +262,8 @@ def create_loaders(train_dataset, test_dataset, seed, val_split, batch_size):
     return train_loader, val_loader, test_loader
 
 
-def generate_sample_set(model, params, data_rng, batch_size, d_input, L, size):
+
+def generate_sample_set(model, params, data_rng, batch_size, d_input, L, size, dataset):
     """
     Returns pytorch dataset for given model and parameters and for sinus function if no model is given.
     ...
@@ -286,16 +287,18 @@ def generate_sample_set(model, params, data_rng, batch_size, d_input, L, size):
     
     for i in tqdm(range(size)):
         data_rng, key = jax.random.split(data_rng)
-        if model == None:
+        if dataset == "sinreg":
             x = nn.initializers.uniform(
                 scale=2 * jnp.pi)(key, shape=(batch_size, d_input, L)) - jnp.pi
             y = jnp.sin(x)
-        else:
+        elif dataset == "teacher":
             initializer = jax.nn.initializers.normal(1.0)
             x = initializer(key, shape=(batch_size, d_input, L))
-            #x = nn.initializers.uniform(scale=2)(
-            #    key, shape=(batch_size, d_input, L)) - 1.
             y = model.apply({'params': params}, x)
+        elif dataset == "autoencoder":
+            initializer = jax.nn.initializers.normal(1.0)
+            x = initializer(key, shape=(batch_size, d_input, L))
+            y = x
         if (i == 0):
             inputs = x
             outputs = y

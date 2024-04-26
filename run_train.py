@@ -188,7 +188,7 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--architecture", type=int, default=2, choices=[1, 2, 3, 4, 5, 6], help="new way to select architecture. 1 -> one hidden layer of dim 1000 and relu, 2 -> two hidden layers of dim 500 and 500 and relu"
+        "--architecture", type=int, default=2, choices=[1, 2, 3, 4, 5, 6, 7, 8, 9], help="new way to select architecture. 1 -> one hidden layer of dim 1000 and relu, 2 -> two hidden layers of dim 500 and 500 and relu"
     )
 
     parser.add_argument(
@@ -225,6 +225,10 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--alpha", type=float, default = 1.0, help="interpolate between loss and alignemnt"
+        )
+    
+    parser.add_argument(
+        "--period_alpha", type=int, default = -1 , help="period for interpolating alpha or alpha=1"
         )
     
     args = parser.parse_args()

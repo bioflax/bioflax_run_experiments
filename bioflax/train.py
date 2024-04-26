@@ -1,6 +1,7 @@
 import wandb
 import optax
 from jax import random
+import jax.numpy as jnp
 from jax import config
 from typing import Any
 from .model import BatchBioNeuralNetwork, BioNeuralNetwork
@@ -65,6 +66,7 @@ def train(args):
     full_batch = args.full_batch
     grads_minus_mode = args.grads_minus_mode
     alpha = args.alpha
+    period_alpha = args.period_alpha
 
     if mode == 'bp':
         compute_alignments = False
@@ -132,6 +134,10 @@ def train(args):
         dataset = "mnist"
         loss_fn = "CE_with_label_zero"
         output_features = 10
+    elif dataset == "autoencoder":
+        task = "regression"
+        loss_fn = "MSE"
+        output_features = seq_len
     else:
         task = "regression"
         loss_fn = "MSE"
@@ -168,6 +174,26 @@ def train(args):
         hidden_layers = [500, 500]
         args.hidden_layers = hidden_layers
         activations = ['identity', 'identity']
+        args.activations = activations
+    elif architecture == 6:
+        hidden_layers = [10]
+        args.hidden_layers = hidden_layers
+        activations = ['identity']
+        args.activations = activations
+    elif architecture == 7:
+        hidden_layers = [100]
+        args.hidden_layers = hidden_layers
+        activations = ['identity']
+        args.activations = activations
+    elif architecture == 8:
+        hidden_layers = [500]
+        args.hidden_layers = hidden_layers
+        activations = ['identity']
+        args.activations = activations
+    elif architecture == 9:
+        hidden_layers = [500, 10, 500]
+        args.hidden_layers = hidden_layers
+        activations = ['identity', 'identity', 'identity']
         args.activations = activations
     # elif architecture == 1:
     #     hidden_layers = [500, 500]
@@ -347,6 +373,8 @@ def train(args):
         steps_per_epoch=train_size,
     )
 
+    init_params = state.params
+
     if freeze:
         unfreeze_layer = 'RandomDenseLinearInterpolateFABP_0'
         state = update_freezing(
@@ -361,9 +389,19 @@ def train(args):
     best_loss, best_acc, best_epoch = 100000000, - \
         100000000.0, 0  # This best loss is val_loss
     prev_loss=2.
+    decay = alpha
+    step = alpha
     for i, epoch in enumerate(range(epochs)):  # (args.epochs):
+        # periodic switching
+        # if i % period_alpha == 0:
+        #     inter = alpha
+        #     alpha = alpha_
+        #     alpha_ = inter
         #if i >= 20:
         #    alpha = 1.0
+        alpha = 1 - (.4 * decay)
+        decay = decay * step
+
         
         #print(f"[*] Starting training epoch {epoch + 1}...")
         key_mask, key, key_epoch = random.split(key, num=3)
@@ -399,7 +437,7 @@ def train(args):
             avg_norm_proj_grad,
 
         ) = train_epoch(model, state, state_bp, trainloader, 
-                        loss_fn, n, mode, compute_alignments, lam, reset, p, key_mask, use_wandb, prev_loss, key_epoch, steps, full_batch, grads_minus_mode, alpha)
+                        loss_fn, n, mode, compute_alignments, lam, reset, p, key_mask, use_wandb, prev_loss, key_epoch, steps, full_batch, grads_minus_mode, alpha, init_params)
                         #, state_reset, trainloader, loss_fn, n, mode, compute_alignments, lam, reset)
         if (i > 0):
             avg_conv_rate = train_loss/prev_loss

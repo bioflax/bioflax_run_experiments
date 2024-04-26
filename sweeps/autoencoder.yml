@@ -1,0 +1,71 @@
+method: grid
+program: run_train.py
+parameters:
+  lr:
+    values:
+      - 0.0316
+      - 0.1
+  dataset:
+    values:
+      - "autoencoder"
+  train_set_size:
+    values:
+      - 50 #this is in multiple of batches
+  test_set_size:
+    values:
+      - 5
+  val_split:
+    values:
+      - 0.1 #this is in multiple of batches
+  seq_len:
+    values:
+      - 5
+      - 10
+      - 100
+  full_batch:
+    value: False
+  weight_decay:
+    values:
+      - 0.0
+  weight_decay_1:
+    values:
+      - 0.0
+  weight_decay_2:
+    values:
+      - 0.0
+      #- 0.1 not possible atm because applied to B as well
+  optimizer:
+    value: 'sgd'
+  batch_size:
+    value: 1000
+  tune_for_lr:
+    value: False
+  mode:
+    value: 'interpolate_fa_bp'
+  architecture:
+    values:
+      - 9
+      - 8
+      - 7
+  epochs:
+    value: 150
+  period:
+    value: -1
+  wandb_project:
+    value: 'weight_init'
+  initializer:
+    value: 'lecun'
+  steps:
+    value: 25
+  compute_alignments: 
+    value : True
+  lam:
+    values:
+      - 1.0
+      - 0.0
+  jax_seed:
+    values:
+      - 50
+      - 100
+      - 200
+      - 300

@@ -3,8 +3,7 @@ program: run_train.py
 parameters:
   lr:
     values:
-      - 0.316
-      - 0.00316
+      - 0.01
   dataset:
     values:
       - "mnist_ce_with_loss_interpolation"
@@ -36,19 +35,25 @@ parameters:
     value: False
   mode:
     value: 'interpolate_fa_bp'
-  alpha:
+  alpha: #alpha here used to model an exponential decay of the actual alpha 0.6 to 1: 1 - 0.6 * alpha ^epoch
     values:
-      - 1.0
+      - 0.95
+      - 0.9
+      - 0.8
       - 0.7
-      - 0.3
       - 0.0 #is in the otehr sweep
       #- 0.0
+  period_alpha: #not used in this sweep
+    values:
+      - 5
+      #- 10
+      #- 25
   architecture:
     values:
       - 1
       - 2
   epochs:
-    value: 200
+    value: 150
   period:
     value: -1
   wandb_project:

@@ -5,7 +5,7 @@ import numpy as np
 import jax.tree_util as jax_tree
 
 
-def compute_metrics(state, grads_true, grads_est, mode, lam):
+def compute_metrics(state, grads_true, grads_est, mode, lam, init_params):
     """
     Compute alignment metrics of current epoch for given state of the model and current gradients. Metrics computed are:
     - alignment of forward anf feedback weights per layer (only for fa and kp mode)
@@ -28,11 +28,11 @@ def compute_metrics(state, grads_true, grads_est, mode, lam):
     """
 
     if mode == 'fa' or mode == 'kp':
-        weight_al_per_layer, norms_kernels_per_layer, norms_Bs_per_layer = compute_weight_alignment(state.params)
+        layerwise_weight_alignments, layerwise_init_alignments, norms_kernels_per_layer, norms_Bs_per_layer = compute_interpolate_weight_alignment(state.params, -1, init_params)
     elif mode == 'interpolate_fa_bp':
-        weight_al_per_layer, norms_kernels_per_layer, norms_Bs_per_layer = compute_interpolate_weight_alignment(state.params, lam)
+        layerwise_weight_alignments, layerwise_init_alignments, norms_kernels_per_layer, norms_Bs_per_layer = compute_interpolate_weight_alignment(state.params, lam, init_params)
     else:
-        weight_al_per_layer, norms_kernels_per_layer, norms_Bs_per_layer = 0
+        layerwise_weight_alignments, layerwise_init_alignments, norms_kernels_per_layer, norms_Bs_per_layer = 0
 
     bias_true, _ = jax_tree.tree_flatten(
         flatten_matrices_in_tree(remove_keys(grads_true, ['kernel', 'B' ])))
@@ -48,7 +48,7 @@ def compute_metrics(state, grads_true, grads_est, mode, lam):
         bias_true, bias_est, kernel_true, kernel_est)
     wandb_grad_al_total, norm_true, norm_est, rel_norm_grads, norm_proj_grad  = compute_wandb_al_total(bias_true, bias_est, kernel_true, kernel_est)
     #rel_norm_grads = compute_rel_norm(bias_true, bias_est, kernel_true, kernel_est)
-    return bias_al_per_layer, wandb_grad_al_per_layer, wandb_grad_al_total, weight_al_per_layer, rel_norm_grads, norm_true, norm_est, norms_kernels_per_layer, norms_Bs_per_layer, norm_proj_grad
+    return bias_al_per_layer, wandb_grad_al_per_layer, wandb_grad_al_total, layerwise_weight_alignments, layerwise_init_alignments, rel_norm_grads, norm_true, norm_est, norms_kernels_per_layer, norms_Bs_per_layer, norm_proj_grad
 
 def summarize_metrics_epoch(bias_als_per_layer, wandb_grad_als_per_layer, wandb_grad_als_total, weight_als_per_layer, rel_norms_grads, norms_true, norms_est, norms_kernels_per_layer, norms_Bs_per_layer, norms_proj_grad,mode):
     """
@@ -85,8 +85,8 @@ def summarize_metrics_epoch(bias_als_per_layer, wandb_grad_als_per_layer, wandb_
     avg_norm_proj_grad = jnp.mean(jnp.array(norms_proj_grad))
     return avg_bias_al_per_layer, avg_wandb_grad_al_per_layer, avg_wandb_grad_al_total, avg_weight_al_per_layer, avg_rel_norm_grads, avg_norm_true, avg_norm_est, avg_norm_kernel_per_layer, avg_norm_B_per_layer, avg_norm_proj_grad
 
-@jax.jit
-def compute_interpolate_weight_alignment(params, lam):
+@partial(jax.jit, static_argnums=(1,))
+def compute_interpolate_weight_alignment(params, lam, init_params):
     """
     Computes the alignment of feedforward and feedback matrices per layer.
     ...
@@ -97,36 +97,22 @@ def compute_interpolate_weight_alignment(params, lam):
     """
     kernels, _ = jax_tree.tree_flatten(
         flatten_matrices_in_tree(remove_keys(params, ['bias', 'B'])))
+    kernels_init, _ = jax_tree.tree_flatten(
+        flatten_matrices_in_tree(remove_keys(init_params, ['bias', 'B'])))
     Bs, _ = jax_tree.tree_flatten(flatten_matrices_in_tree(
         remove_keys(params, ['bias', 'kernel'])))
-    Bs = jax.tree_map((lambda a, b : lam * a + (1-lam)*b), Bs, kernels)
-    dot_prods = jax_tree.tree_map(jnp.dot, kernels, Bs)
+    if lam != -1:
+        Bs = jax.tree_map((lambda a, b : lam * a + (1-lam)*b), Bs, kernels)
+    dot_prods_weight_al = jax_tree.tree_map(jnp.dot, kernels, Bs)
+    dot_prods_init_al = jax_tree.tree_map(jnp.dot, kernels, kernels_init)
     layerwise_norm_kern = jax_tree.tree_map(jnp.linalg.norm, kernels)
+    layerwise_norm_kernels_init = jax_tree.tree_map(jnp.linalg.norm, kernels_init)
     layerwise_norm_B = jax_tree.tree_map(jnp.linalg.norm, Bs)
-    layerwise_alignments = jax.tree_map(
-        (lambda x, y, z: x/(y*z)), dot_prods, layerwise_norm_kern, layerwise_norm_B)
-    return layerwise_alignments, layerwise_norm_kern, layerwise_norm_B
-
-@jax.jit
-def compute_weight_alignment(params):
-    """
-    Computes the alignment of feedforward and feedback matrices per layer.
-    ...
-    Parameters
-    ----------
-    params : dict
-        dictionary of model parameters
-    """
-    kernels, _ = jax_tree.tree_flatten(
-        flatten_matrices_in_tree(remove_keys(params, ['bias', 'B'])))
-    Bs, _ = jax_tree.tree_flatten(flatten_matrices_in_tree(
-        remove_keys(params, ['bias', 'kernel'])))
-    dot_prods = jax_tree.tree_map(jnp.dot, kernels, Bs)
-    layerwise_norm_kern = jax_tree.tree_map(jnp.linalg.norm, kernels)
-    layerwise_norm_B = jax_tree.tree_map(jnp.linalg.norm, Bs)
-    layerwise_alignments = jax.tree_map(
-        (lambda x, y, z: x/(y*z)), dot_prods, layerwise_norm_kern, layerwise_norm_B)
-    return layerwise_alignments, layerwise_norm_kern, layerwise_norm_B
+    layerwise_weight_alignments = jax.tree_map(
+        (lambda x, y, z: x/(y*z)), dot_prods_weight_al, layerwise_norm_kern, layerwise_norm_B)
+    layerwise_init_alignments = jax.tree_map(
+        (lambda x, y, z: x/(y*z)), dot_prods_init_al, layerwise_norm_kern, layerwise_norm_kernels_init)
+    return layerwise_weight_alignments, layerwise_init_alignments,layerwise_norm_kern, layerwise_norm_B
 
 
 @jax.jit

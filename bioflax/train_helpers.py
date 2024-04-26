@@ -143,7 +143,7 @@ def create_mask_dict(input_dict):
 
     return mask_dict
 
-def train_epoch(model, state, state_bp, trainloader, loss_function, n, mode, compute_alignments, lam, reset, p, key_mask, use_wandb, prev_loss, key, steps, full_batch, grads_minus_mode, alpha):
+def train_epoch(model, state, state_bp, trainloader, loss_function, n, mode, compute_alignments, lam, reset, p, key_mask, use_wandb, prev_loss, key, steps, full_batch, grads_minus_mode, alpha, init_params):
     """
     Training function for an epoch that loops over batches.
     ...
@@ -226,13 +226,14 @@ def train_epoch(model, state, state_bp, trainloader, loss_function, n, mode, com
                         wandb_grad_al_per_layer,
                         wandb_grad_al_total,
                         weight_al_per_layer,
+                        init_al_per_layer,
                         rel_norm_grads,
                         norm_true,
                         norm_est, 
                         norm_kernels_per_layer,
                         norm_Bs_per_layer,
                         norm_proj_grad
-                    ) = compute_metrics(state, grads_true, grads_est, mode, lam)
+                    ) = compute_metrics(state, grads_true, grads_est, mode, lam, init_params)
                     bias_als_per_layer.append(bias_al_per_layer)
                     wandb_grad_als_per_layer.append(wandb_grad_al_per_layer)
                     wandb_grad_als_total.append(wandb_grad_al_total)
@@ -278,7 +279,9 @@ def train_epoch(model, state, state_bp, trainloader, loss_function, n, mode, com
                     metrics[f"Alignment gradient layer {i}"] = al
                 if mode == "fa" or mode == "kp" or mode == "interpolate_fa_bp":
                     for i, al in enumerate(weight_al_per_layer):
-                        metrics[f"Alignment layer {i}"] = al
+                        metrics[f"Alignment layer {i} with B"] = al
+                    for i, al in enumerate(init_al_per_layer):
+                        metrics[f"Alignment layer {i} with init"] = al
                     for i, norm in enumerate(norm_kernels_per_layer):
                         metrics[f"Norm layer {i}"] = norm
                     for i, norm in enumerate(norm_Bs_per_layer):
